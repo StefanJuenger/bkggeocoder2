@@ -3,8 +3,9 @@
 #' @description Reads raw BKG address CSV files (one per federal state),
 #' cleans and standardizes address components, and writes a partitioned
 #' Parquet database that can be used for offline geocoding with
-#' \code{\link{bkg_geocode_offline}}. This function only needs to be run
-#' once when setting up or updating the address data.
+#' \code{\link{bkg_geocode_offline}}. Use this function for the initial
+#' setup of the local database; for refreshing an already existing database
+#' with newer raw data, use \code{\link{bkg_update_database}} instead.
 #'
 #' @param address_data_path \code{[character]}
 #'
@@ -33,10 +34,13 @@
 #'
 #' The output is written as a Snappy-compressed Parquet dataset partitioned
 #' by \code{place_slug} using DuckDB. A separate Parquet lookup table
-#' mapping places and zip codes is also created.
+#' mapping places and zip codes is also created, as well as a persistent
+#' DuckDB database file and a \code{version.json} metadata file.
 #'
 #' @returns Called for its side effect (writing Parquet files). Returns
 #' \code{NULL} invisibly.
+#'
+#' @seealso \code{\link{bkg_update_database}}
 #'
 #' @encoding UTF-8
 #' @md
@@ -325,192 +329,3 @@ bkg_build_database <- function(address_data_path, db_target_path) {
   
   invisible(NULL)
 }
-
-# bkg_build_database <- function(address_data_path, db_target_path) {
-#   
-#   laender_names <- c(
-#     "bb", "be", "bw", "by", "hb", "he", "hh", "mv",
-#     "ni", "nw", "rp", "sh", "sl", "sn", "st", "th"
-#   )
-#   
-#   cli::cli_h1("Building BKG address database")
-#   
-#   unlink(
-#     file.path(db_target_path, "ga"),
-#     recursive = TRUE,
-#     force = TRUE
-#   )
-#   
-#   con <- DBI::dbConnect(duckdb::duckdb())
-#   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-#   
-#   DBI::dbExecute(con, "
-#     CREATE TABLE bkg_ga (
-#       street VARCHAR,
-#       house_number VARCHAR,
-#       house_number_add VARCHAR,
-#       zip_code VARCHAR,
-#       place VARCHAR,
-#       place_add VARCHAR,
-#       RS VARCHAR,
-#       x VARCHAR,
-#       y VARCHAR,
-#       whole_address VARCHAR,
-#       whole_address_add VARCHAR,
-#       place_slug VARCHAR
-#     )
-#   ")
-#   
-#   pb <- cli::cli_progress_bar(
-#     total = length(laender_names),
-#     format = "Reading state files [{cli::pb_bar}] {cli::pb_percent}"
-#   )
-#   
-#   for (idx in seq_along(laender_names)) {
-#     
-#     cli::cli_progress_update(id = pb, set = idx)
-#     
-#     i <- laender_names[[idx]]
-#     
-#     tmp <- data.table::fread(
-#       file.path(address_data_path, glue::glue("ga_{i}.csv")),
-#       colClasses = "character",
-#       encoding = "UTF-8",
-#       showProgress = FALSE
-#     )
-#     
-#     tmp[
-#       ,
-#       RS := do.call(paste0, .SD),
-#       .SDcols = c("V4", "V5", "V6", "V7", "V8")
-#     ]
-#     
-#     tmp <- tmp[
-#       ,
-#       .(
-#         street = gsub(" \\(.*\\)\\b", "", V15),
-#         house_number = V11,
-#         house_number_add = tolower(V12),
-#         zip_code = V16,
-#         place = V20,
-#         place_add = gsub("Ortsteil unbekannt", "", V19),
-#         RS,
-#         x = gsub(",", ".", V13),
-#         y = gsub(",", ".", V14)
-#       )
-#     ]
-#     
-#     tmp[
-#       ,
-#       street := gsub("Str[.]$", "Straße", gsub("str[.]$", "straße", street))
-#     ]
-#     
-#     tmp[
-#       ,
-#       whole_address := paste0(
-#         street, " ",
-#         house_number,
-#         house_number_add, " ",
-#         zip_code, " ",
-#         place
-#       )
-#     ]
-#     
-#     tmp[
-#       ,
-#       whole_address_add := paste0(
-#         whole_address, " ", place_add
-#       )
-#     ]
-#     
-#     tmp[
-#       ,
-#       place_slug := normalize_file(place)
-#     ]
-#     
-#     DBI::dbAppendTable(
-#       con,
-#       "bkg_ga",
-#       tmp
-#     )
-#     
-#     rm(tmp)
-#     gc()
-#   }
-#   
-#   cli::cli_progress_done(id = pb)
-#   
-#   cli::cli_alert_info("Writing partitioned dataset")
-#   
-#   DBI::dbExecute(
-#     con,
-#     glue::glue("
-#       COPY bkg_ga
-#       TO '{normalizePath(file.path(db_target_path, 'ga'),
-#       winslash='/', mustWork=FALSE)}'
-#       (
-#         FORMAT PARQUET,
-#         PARTITION_BY(place_slug),
-#         COMPRESSION snappy
-#       )
-#     ")
-#   )
-#   
-#   files <- 
-#     list.files(
-#       file.path(db_target_path, "ga"),
-#       pattern = "\\.parquet$",
-#       recursive = TRUE,
-#       full.names = FALSE
-#     )
-#   
-#   index <- 
-#     data.frame(
-#       file = files,
-#       place_slug = sub("^place_slug=([^/]+)/.*$", "\\1", files),
-#       stringsAsFactors = FALSE
-#     )
-#   
-#   arrow::write_parquet(
-#     index,
-#     file.path(
-#       db_target_path,
-#       "ga",
-#       "index.parquet"
-#     ),
-#     compression = "snappy"
-#   )
-#   
-#   
-#   cli::cli_alert_info("Writing ZIP lookup")
-#   
-#   unlink(
-#     file.path(db_target_path, "zip_places"),
-#     recursive = TRUE,
-#     force = TRUE
-#   )
-#   
-#   dir.create(file.path(db_target_path, "zip_places"))
-#   
-#   ga_zip_places <- DBI::dbGetQuery(con, "
-#     SELECT DISTINCT
-#       place,
-#       place_add,
-#       zip_code,
-#       place_slug
-#     FROM bkg_ga
-#     ORDER BY place
-#   ")
-#   
-#   arrow::write_parquet(
-#     ga_zip_places,
-#     file.path(
-#       db_target_path,
-#       "zip_places",
-#       "ga_zip_places.parquet"
-#     ),
-#     compression = "snappy"
-#   )
-#   
-#   cli::cli_alert_success("Done")
-# }
