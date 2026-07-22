@@ -1,0 +1,124 @@
+#' Print geocoding results
+#'
+#' @param x Object of class \code{GeocodingResults}
+#' @param n Maximum number of rows to display. Defaults to 10.
+#' @param ... Further arguments passed on to
+#' \code{\link[base:print.data.frame]{base::print.data.frame()}}
+#'
+#' @export
+print.GeocodingResults <- function(x, n = 10, ...) {
+  n_total <- nrow(x)
+  has_score <- !is.na(x$score)
+  n_place_matched <- sum(has_score)
+  n_unmatched <- n_total - n_place_matched
+  scores <- x$score[has_score]
+
+  cat("Class:", strrep(" ", 5), "GeocodingResults", "\n")
+  cat("Addresses:", strrep(" ", 2), n_total, "\n")
+  cat("Geocoded:", strrep(" ", 3), n_place_matched, "/", n_total, "\n")
+
+  if (length(scores)) {
+    cat("Mean score:", strrep(" ", 1), round(mean(scores), 3), "\n")
+  }
+
+  cat("Type:", strrep(" ", 6), attr(x, "type"), "\n")
+
+  if (n_unmatched) {
+    cat("Unmatched:", strrep(" ", 2), n_unmatched, "address(es)\n")
+  }
+
+  cat("\n")
+
+  display_cols <- intersect(
+    c("score", "address_input", "address_output"),
+    names(x)
+  )
+
+  if (length(display_cols)) {
+    printed_df <- sf::st_drop_geometry(x[seq_len(min(n, n_total)), display_cols])
+    class(printed_df) <- setdiff(class(printed_df), "GeocodingResults")
+    print(printed_df, ...)
+    if (n_total > n) {
+      cat(sprintf("... and %d more rows\n", n_total - n))
+    }
+  }
+
+  invisible(x)
+}
+
+
+#' Get a summary of geocoding results
+#'
+#' @param object Object of class \code{GeocodingResults}
+#' @param ... Ignored.
+#'
+#' @export
+summary.GeocodingResults <- function(object, ...) {
+  n_total <- nrow(object)
+  has_score <- !is.na(object$score)
+  n_geocoded <- sum(has_score)
+  scores <- object$score[has_score]
+  unmatched <- attr(object, "unmatched_places")
+
+  msg <- paste0(
+    "Addresses in input data:         ", n_total, "\n",
+    "Addresses geocoded:              ", n_geocoded, "\n",
+    "Addresses not geocoded:          ", n_total - n_geocoded, "\n"
+  )
+
+  if (length(scores)) {
+    msg <- paste0(
+      msg, "\n",
+      "Mean score:                      ", round(mean(scores), 3), "\n",
+      "Median score:                    ", round(stats::median(scores), 3), "\n",
+      "Standard deviation of score:     ", round(stats::sd(scores), 3), "\n",
+      "Minimum score:                   ", round(min(scores), 3), "\n",
+      "Maximum score:                   ", round(max(scores), 3), "\n"
+    )
+  }
+
+  cat(msg)
+
+  if (!is.null(unmatched) && nrow(unmatched)) {
+    cat("\nUnmatched places:\n")
+    print(unmatched)
+  }
+}
+
+
+#' Plot geocoding score distribution
+#'
+#' @param x Object of class \code{GeocodingResults}
+#' @param ... Further arguments passed on to \code{\link[graphics]{hist}}
+#'
+#' @export
+plot.GeocodingResults <- function(x, ...) {
+  scores <- x$score[!is.na(x$score)]
+
+  if (!length(scores)) {
+    cli::cli_warn("No scores to plot.")
+    return(invisible(NULL))
+  }
+
+  graphics::hist(
+    scores,
+    main = "Distribution of geocoding scores",
+    xlab = "Score",
+    xlim = c(0, 1),
+    ...
+  )
+}
+
+
+#' @export
+plot.ReverseResults <- function(x, ...) {
+  n_input <- nrow(x[["reversed"]]) + nrow(x[["not_reversed"]])
+  printed_df <- x[["reversed"]][c("score", "address_output")]
+
+  cat("Class:", strrep(" ", 5), "ReverseResults", "\n")
+  cat("Reversed:   ", nrow(x$reversed), "/", n_input, "\n")
+  cat("Mean score: ", round(mean(x$reversed$score), 3), "\n")
+  cat("Type:", strrep(" ", 6), attr(x, "type"), "\n\n")
+
+  print(printed_df, ...)
+}

@@ -1,0 +1,149 @@
+bkg_match_places_ddb <- function(
+    .data,
+    cols,
+    data_path,
+    data_from_server,
+    credentials_path,
+    place_match_quality = 0.85,
+    con,
+    verbose
+) {
+  
+  place <- ifelse(length(cols) == 4, cols[4], cols[3])
+  zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
+  
+  # ---------------------------
+  # Prepare input
+  # ---------------------------
+  
+  .data[, zip_code] <- vapply(.data[, zip_code], function(zip) {
+    zip <- as.character(zip)
+    if (nchar(zip) == 4) paste0("0", zip) else zip
+  }, FUN.VALUE = character(1))
+  
+  .data$place_simple <- normalize_key(.data[[place]])
+  
+  if (isTRUE(verbose)) {
+    cli::cli_inform(
+      "Found {.val {nrow(unique(.data[c(place, zip_code)]))}} distinct places."
+    )
+    cli::cli_progress_step("Matching places via DuckDB...")
+  }
+  
+  # ---------------------------
+  # Load reference data
+  # ---------------------------
+  
+  zip_places <- bkg_read(
+    what = "places",
+    data_from_server = data_from_server,
+    data_path = data_path,
+    credentials_path = credentials_path,
+    con = con
+  )
+  
+  zip_places$place_full <- trimws(paste(zip_places$place, zip_places$place_add))
+  zip_places$place_add <- NULL
+  
+  zip_places$place_simple <- normalize_key(zip_places$place_full)
+  
+  # ---------------------------
+  # Register tables
+  # ---------------------------
+  
+  input_tbl <- paste0("input_places_", sample.int(1e6, 1))
+  ref_tbl <- paste0("ref_places_", sample.int(1e6, 1))
+  
+  duckdb::duckdb_register(con, input_tbl, .data)
+  on.exit(
+    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", input_tbl)), 
+    add = TRUE
+  )
+  
+  duckdb::duckdb_register(con, ref_tbl, zip_places)
+  on.exit(
+    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", ref_tbl)), 
+    add = TRUE
+  )
+  
+  # ---------------------------
+  # SQL MATCHING (reclin2-like scoring)
+  # ---------------------------
+  
+  sql <- sprintf("
+    WITH scored AS (
+      SELECT
+        i.*,
+        r.place_full AS place_matched,
+        r.zip_code AS zip_code_matched,
+        r.place_slug,
+        -- PLZ similarity
+        CASE
+          WHEN i.\"%s\" = r.zip_code THEN 1.0
+          ELSE 0.0
+        END AS zip_score,
+        -- Ort similarity
+        jaro_winkler_similarity(
+          i.place_simple,
+          r.place_slug
+        ) AS place_score,
+        -- kombinierter Score (multiplikativ stabiler)
+        (
+          jaro_winkler_similarity(i.place_simple, r.place_slug)
+          *
+          CASE
+            WHEN i.\"%s\" = r.zip_code THEN 1.0
+            ELSE 0.2
+          END
+        ) AS total_score
+      FROM %s i
+      LEFT JOIN %s r
+        ON i.\"%s\" = r.zip_code
+    )
+    SELECT *
+    FROM scored
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY \".iid\"
+      ORDER BY total_score DESC, place_matched
+    ) = 1
+  ",
+                 zip_code,
+                 zip_code,
+                 input_tbl,
+                 ref_tbl,
+                 zip_code
+  )
+  
+  matched <- DBI::dbGetQuery(con, sql)
+  
+  # ---------------------------
+  # Merge back
+  # ---------------------------
+  
+  result <- merge(
+    .data,
+    matched[, c(".iid", "place_matched", "zip_code_matched",
+                "place_slug", "total_score")],
+    by = ".iid",
+    all.x = TRUE
+  )
+  
+  result$place_matched_flag <- !is.na(result$total_score) &
+    result$total_score >= place_match_quality
+  
+  unmatched <- result[!result$place_matched_flag,
+                      c(zip_code, place)]
+  unmatched <- unmatched[!duplicated(unmatched), ]
+  
+  if (isTRUE(verbose)) {
+    cli::cli_progress_done()
+    
+    n_matched <- sum(result$place_matched_flag)
+    
+    cli::cli_inform(
+      "{.val {n_matched}} / {.val {nrow(.data)}} places matched."
+    )
+  }
+  
+  structure(result, unmatched_places = unmatched)
+}
