@@ -1,4 +1,4 @@
-Package: bkggeocoder
+Package: bkggeocoder2
 Type: Package
 Title: Geocoding based on the data of the Federal Agency of 
     Cartography and Geodesy (BKG)
@@ -13,8 +13,8 @@ Description: R Package for geocoding based on the data of the Federal Agency of
     require access to the BKG address datasets (gdz_geokodierung_* or
     wfs_geokodierung_*).
 License: CC BY 4.0
-URL: https://github.com/StefanJuenger/bkggeocoder
-BugReports: https://github.com/StefanJuenger/bkggeocoder/issues
+URL: https://github.com/StefanJuenger/bkggeocoder2
+BugReports: https://github.com/StefanJuenger/bkggeocoder2/issues
 Encoding: UTF-8
 LazyData: true
 Depends: 

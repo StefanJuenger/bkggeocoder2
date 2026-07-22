@@ -23,14 +23,14 @@
 #' simple regular expressions and addresses (especially German addresses) are
 #' not always written in regular language. The input addresses should already be
 #' in a somewhat tidy format before entering this function. For 
-#' \code{\link[bkggeocoder]{commaddr}} (which is very tidy), around 99.98\% of
+#' \code{\link[bkggeocoder2]{commaddr}} (which is very tidy), around 99.98\% of
 #' addresses can be successfully parsed. For untidy data, consider using more
 #' advanced software like 
 #' \href{https://github.com/openvenues/libpostal}{libpostal} or
 #' \href{https://github.com/pelias/parser}{Pelias}.
 #' 
 #' @examples 
-#' data(commaddr, package = "bkggeocoder")
+#' data(commaddr, package = "bkggeocoder2")
 #' 
 #' parsed <- parse_addresses(commaddr[1:20, ], col = 5)
 #' parsed

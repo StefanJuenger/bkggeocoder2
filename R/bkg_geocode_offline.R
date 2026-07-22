@@ -140,7 +140,7 @@
 #' Approximate String Matching. The R Journal, 6(1), 111–122. https://doi.org/10.32614/RJ-2014-011
 #'
 #' @examples
-#' data(commaddr, package = "bkggeocoder")
+#' data(commaddr, package = "bkggeocoder2")
 #'
 #' # Basic call with lower quality thresholds
 #' gc <- bkg_geocode_offline(commaddr, cols = 2:5, place_match_quality = 0.7)

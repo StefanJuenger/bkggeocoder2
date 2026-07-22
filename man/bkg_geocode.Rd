@@ -36,7 +36,7 @@ For \code{bkg_geocode}, a dataframe containing address data. The dataframe
 must all columns specified with the \code{cols} argument. For
 \code{bkg_reverse}, .data is expected to be an \code{sf} data.frame
 containing geometries of a single geometry type. Geometry types correspond to
-the allowed geometry types in \code{\link[bkggeocoder]{bkg_reverse_single}}.
+the allowed geometry types in \code{\link[bkggeocoder2]{bkg_reverse_single}}.
 Ignored if \code{structured = FALSE}.}
 
 \item{query}{\code{[character]}
@@ -60,8 +60,8 @@ strings for unstructured geocoding.}
 Numeric or character string containing an EPSG code for the requested CRS.}
 
 \item{...}{Further arguments passed to
-\code{\link[bkggeocoder]{bkg_geocode_single}} or
-\code{\link[bkggeocoder]{bkg_reverse_single}}}
+\code{\link[bkggeocoder2]{bkg_geocode_single}} or
+\code{\link[bkggeocoder2]{bkg_reverse_single}}}
 
 \item{join_with_original}{\code{[logical]}
 

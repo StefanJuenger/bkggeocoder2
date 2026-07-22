@@ -1,7 +1,7 @@
 
-# bkggeocoder
+# bkggeocoder2
 
-<img src="./man/images/hex_bkggeocoder.png" align="right" width="120"/>
+<img src="./man/images/hex_bkggeocoder2.png" align="right" width="120"/>
 
 <!-- badges: start -->
 
@@ -10,7 +10,7 @@ experimental](https://img.shields.io/badge/lifecycle-experimental-red.svg)](http
 
 <!-- badges: end -->
 
-`bkggeocoder` is an R interface to the data and services of the [Federal
+`bkggeocoder2` is an R interface to the data and services of the [Federal
 Agency of Cartography and Geodesy
 (BKG)](https://gdz.bkg.bund.de/index.php/default/webanwendungen/bkg-geocoder.html)
 in Germany. The package contains two main features:
@@ -49,7 +49,7 @@ version using the following code:
 ``` r
 if (!require(pak)) install.packages("pak")
 
-pak::pkg_install("StefanJuenger/bkggeocoder")
+pak::pkg_install("StefanJuenger/bkggeocoder2")
 ```
 
 The development version can be installed using:
@@ -57,7 +57,7 @@ The development version can be installed using:
 ``` r
 if (!require(pak)) install.packages("pak")
 
-pak::pkg_install("StefanJuenger/bkggeocoder@dev")
+pak::pkg_install("StefanJuenger/bkggeocoder2@dev")
 ```
 
 ## Resources

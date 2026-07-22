@@ -171,7 +171,7 @@ high number of different places. If needed, this behavior can be suppressed
 by setting \code{force_decrypt = TRUE}.
 }
 \examples{
-data(commaddr, package = "bkggeocoder")
+data(commaddr, package = "bkggeocoder2")
 
 # Basic call with lower quality thresholds
 gc <- bkg_geocode_offline(commaddr, cols = 2:5, place_match_quality = 0.7, target_quality = 0.7)

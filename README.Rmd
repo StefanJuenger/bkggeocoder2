@@ -2,9 +2,9 @@
 output: github_document
 ---
 
-# bkggeocoder
+# bkggeocoder2
 
-<img src="./man/images/hex_bkggeocoder.png" align="right" width="120"/>
+<img src="./man/images/hex_bkggeocoder2.png" align="right" width="120"/>
 
 <!-- badges: start -->
 
@@ -12,7 +12,7 @@ output: github_document
 
 <!-- badges: end -->
 
-`bkggeocoder` is an R interface to the data and services of the [Federal Agency of Cartography and Geodesy (BKG)](https://gdz.bkg.bund.de/index.php/default/webanwendungen/bkg-geocoder.html) in Germany. The package contains two main features:
+`bkggeocoder2` is an R interface to the data and services of the [Federal Agency of Cartography and Geodesy (BKG)](https://gdz.bkg.bund.de/index.php/default/webanwendungen/bkg-geocoder.html) in Germany. The package contains two main features:
 
 -   `bkg_geocode_offline`: Offline geocoding based on raw address data
 -   `bkg_geocode`: Online geocoding through the BKG geocoding API (`gdz_geokodierung`)
@@ -34,7 +34,7 @@ The package is available on GitHub. You can install the latest (stable) version 
 ```{r install-package, eval=FALSE, message=FALSE}
 if (!require(pak)) install.packages("pak")
 
-pak::pkg_install("StefanJuenger/bkggeocoder")
+pak::pkg_install("StefanJuenger/bkggeocoder2")
 ```
 
 The development version can be installed using:
@@ -42,7 +42,7 @@ The development version can be installed using:
 ```{r install-package-dev, eval=FALSE, message=FALSE}
 if (!require(pak)) install.packages("pak")
 
-pak::pkg_install("StefanJuenger/bkggeocoder@dev")
+pak::pkg_install("StefanJuenger/bkggeocoder2@dev")
 ```
 
 ## Resources

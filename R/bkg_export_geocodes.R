@@ -1,12 +1,12 @@
 #' Export geocoding results
 #'
-#' Export the output of \code{\link[bkggeocoder]{bkg_geocode_offline}} and
-#' \code{\link[bkggeocoder]{bkg_geocode}}.
+#' Export the output of \code{\link[bkggeocoder2]{bkg_geocode_offline}} and
+#' \code{\link[bkggeocoder2]{bkg_geocode}}.
 #'
 #' @param .data \code{[GeocodingResults]}
 #'
 #' Output of \code{\link[bkggeocoder]{bkg_geocode}} or
-#' \code{\link[bkggeocoder]{bkg_geocode_offline}} that should be exported.
+#' \code{\link[bkggeocoder2]{bkg_geocode_offline}} that should be exported.
 #'
 #' @param file \code{[character]}
 #'
