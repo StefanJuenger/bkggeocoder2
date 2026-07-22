@@ -1,16 +1,16 @@
-#' Match addresses against BKG database (DuckDB version)
+#' Match addresses against the local BKG database (DuckDB)
 #'
-#' Reads Parquet partitions directly via DuckDB — only for the relevant
+#' Reads Parquet partitions directly via DuckDB -- only for the relevant
 #' places. Uses two-stage matching: first best street, then best house
 #' number within that street. String normalization uses German-specific
 #' transliteration + \code{strip_accents()} in SQL.
 #'
 #' @param matched_data Data frame of place-matched addresses.
 #' @param cols Column names for address components.
-#' @param data_path Path to the Parquet database.
-#' @param data_from_server Whether to read from server.
-#' @param credentials_path Path to credentials.
+#' @param db_path Path to the local Parquet database.
 #' @param hierarchical_weight Exponent for score dampening.
+#' @param house_number_penalty Penalty subtracted from the house-number
+#' score if the input and matched house number differ.
 #' @param con A DuckDB connection object.
 #' @param verbose Whether to print progress.
 #'
@@ -18,9 +18,7 @@
 bkg_match_addresses_ddb <- function(
     matched_data,
     cols,
-    data_path,
-    data_from_server,
-    credentials_path,
+    db_path,
     hierarchical_weight = 0.5,
     house_number_penalty = .05,
     con,
@@ -70,7 +68,8 @@ bkg_match_addresses_ddb <- function(
   
   # Build parquet paths for relevant places only ----
   relevant_slugs <- unique(matched_data$place_slug)
-  base_url <- if (data_from_server) "https://10.6.13.50:8544" else data_path
+  parquet_paths <- bkg_ga_parquet_glob(db_path, relevant_slugs)
+  parquet_sql <- paste(DBI::dbQuoteString(con, parquet_paths), collapse = ", ")
   
   if (isTRUE(verbose)) {
     cli::cli_progress_step(
@@ -84,63 +83,14 @@ bkg_match_addresses_ddb <- function(
   input_tbl <- paste0("input_addr_", sample.int(1e6, 1))
   duckdb::duckdb_register(con, input_tbl, matched_data)
   on.exit(
-    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", input_tbl)), 
+    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", input_tbl)),
     add = TRUE
   )
   
-  relevant_slugs_sql <-
-    paste0("'", relevant_slugs, "'") |> 
-    paste0(collapse = ", ")
-  
-  # DBI::dbExecute(con, "
-  #   CREATE SECRET noverify_addresses (
-  #     TYPE HTTP,
-  #     VERIFY_SSL 0
-  #   )
-  # ")
-  
-  # index <- DBI::dbGetQuery(
-  #   con,
-  #   sprintf(
-  #     "
-  #   SELECT file
-  #   FROM read_parquet('%s')
-  #   WHERE place_slug IN (%s)
-  #   ",
-  #     file.path(base_url, "ga", "index.parquet"),
-  #     paste(DBI::dbQuoteString(con, relevant_slugs), collapse = ",")
-  #   )
-  # )
-  
-  # parquet_paths <-
-  #   file.path(
-  #     base_url,
-  #     "ga",
-  #     index$file,
-  #     fsep = "/"
-  #   )
-  # 
-  # file.copy(from = parquet_paths, to = tempdir())
-  
-  # parquet_paths <- 
-  #   file.path(base_url, sprintf("ga/place_slug=%s/*.parquet", relevant_slugs), fsep = "/" )
-  # 
-  # parquet_sql <- paste(sprintf("'%s'", parquet_paths), collapse = ", ")
-  
-
-  # 
-  # parquet_sql <-
-  #   paste0("'", parquet_paths, "'") |>
-  #   paste(collapse = ", ")
-  
-  # parquet_sql <- paste(
-  #   DBI::dbQuoteString(con, parquet_paths),
-  #   collapse = ","
-  # )
   # SQL normalization: German Umlaut replacement + strip_accents + lower.
   
-  # Mirrors dyn_comparator's tolower() — no non-alphanumeric stripping.
-  # Used for house number comparison where reclin2 only lowercases.
+  # Mirrors dyn_comparator's tolower() -- no non-alphanumeric stripping.
+  # Used for house number comparison.
   nk <- function(expr) {
     sprintf(
       paste0(
@@ -153,17 +103,10 @@ bkg_match_addresses_ddb <- function(
     )
   }
   
-  # Street normalization — mirrors the reclin2 path exactly:
-  #   1. gsub("straße\\b", "X", street, ignore.case=TRUE)
-  #   2. gsub("weg\\b",    "Y", street, ignore.case=TRUE)
-  #   3. normalize_key() → stri_trans_general("de-ASCII") + tolower + gsub("[^a-z0-9]","")
-  #
-  # In SQL: (1) nk() handles umlauts+accents+lower, so "straße" is already
-  
-  # "strasse".  (2) Reduce strasse/weg at WORD BOUNDARIES (\b), not just end-of-
-  # string ($), matching R's gsub("weg\\b",...).  (3) Strip all non-alphanumeric
-  # chars to match normalize_key().  Use lowercase x/y because nk() already
-  # lowered — they survive the [^a-z0-9] strip.
+  # Street normalization:
+  #   1. nk() handles umlauts+accents+lower ("straße" -> "strasse")
+  #   2. Reduce strasse/weg at WORD BOUNDARIES (\b)
+  #   3. Strip all non-alphanumeric chars (mirrors normalize_key())
   nk_street <- function(expr) {
     base <- nk(expr)
     reduced <- sprintf(
@@ -268,16 +211,14 @@ bkg_match_addresses_ddb <- function(
   }
   
   # Compute hierarchical score in R ----
-  place_score <- 
+  place_score <-
     matched_data$total_score[match(geocoded$.iid, matched_data$.iid)]
   geocoded$place_score <- place_score
   
   # Penalty for non-matching house numbers
-  geocoded$house_number_score[
-    geocoded$hn_input != paste0(geocoded$hn_out, geocoded$hn_add_out)
-  ] <- geocoded$house_number_score[
-    geocoded$hn_input != paste0(geocoded$hn_out, geocoded$hn_add_out)
-  ] - house_number_penalty
+  mismatch <- geocoded$hn_input != paste0(geocoded$hn_out, geocoded$hn_add_out)
+  geocoded$house_number_score[mismatch] <-
+    geocoded$house_number_score[mismatch] - house_number_penalty
   
   geocoded$house_number_score[geocoded$house_number_score < 0] <- 0
   

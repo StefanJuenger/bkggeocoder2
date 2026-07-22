@@ -1,0 +1,115 @@
+"%||%" <- function(x, y) if (is.null(x)) y else x
+"%??%" <- function(x, y) if (is.null(x) || all(is.na(x))) y else x
+"%__%" <- function(x, y) if (length(x) == 0) y else x
+
+#' Binds list of (sf) data.frames to a single data.frame. If the number of
+#' columns differs, fills empty columns with NA
+#' @param args List of data.frames or sf objects
+#' @returns data.frame or sf data.frame
+#' @noRd
+rbind_list <- function(args) {
+  nam <- lapply(args, names)
+  unam <- unique(unlist(nam))
+  len <- vapply(args, length, numeric(1))
+  out <- vector("list", length(len))
+  for (i in seq_along(len)) {
+    if (nrow(args[[i]])) {
+      nam_diff <- setdiff(unam, nam[[i]])
+      if (length(nam_diff)) {
+        args[[i]][nam_diff] <- NA
+      }
+    } else {
+      next
+    }
+  }
+  out <- do.call(rbind, args)
+  rownames(out) <- NULL
+  out
+}
+
+
+#' Simpler wrapper for regexec and regmatches
+#'
+#' @param x A character vector to be matched.
+#' @param pattern Regex expression or term to be looked up in x
+#' @param ... Further arguments passed to regexec.
+#'
+#' @noRd
+match_regex <- function(x, pattern, ...) {
+  matches <- regexec(pattern, x, ...)
+  regmatches(x, matches)
+}
+
+
+check_lgl <- function(x) {
+  obj <- deparse(substitute(x))
+  if (!is.logical(x) || is.na(x)) {
+    cli::cli_abort(sprintf("The argument %s must be a non-missing logical.", obj))
+  }
+}
+
+normalize_file <- function(x) {
+  x |>
+    stringi::stri_trans_general("de-ASCII") |>
+    tolower() |>
+    gsub("[^a-z0-9]+", "_", x = _) |>
+    gsub("^_|_$", "", x = _)
+}
+
+normalize_key <- function(x) {
+  x |>
+    stringi::stri_trans_general("de-ASCII") |>
+    tolower() |>
+    gsub("[^a-z0-9]", "", x = _)
+}
+
+#' Build glob paths into the partitioned local Parquet address database
+#'
+#' @description Central helper that constructs the file glob(s) pointing to
+#' the \code{ga/place_slug=<slug>/*.parquet} partitions for one or several
+#' places. Used by both \code{\link{bkg_read}} and
+#' \code{bkg_match_addresses_ddb} so that the on-disk layout only needs to be
+#' known in one place.
+#'
+#' @param data_path \code{[character]} Path to the local Parquet database
+#' directory (as created by \code{\link{bkg_build_database}}).
+#' @param place_slugs \code{[character]} One or several place slugs (as
+#' created by \code{\link{normalize_file}}).
+#'
+#' @returns A character vector of glob paths.
+#'
+#' @noRd
+bkg_ga_parquet_glob <- function(data_path, place_slugs) {
+  file.path(
+    data_path, "ga",
+    sprintf("place_slug=%s", place_slugs),
+    "*.parquet",
+    fsep = "/"
+  )
+}
+
+#' Standard local storage location for the BKG address database
+#'
+#' @description Returns the platform-appropriate standard location for the
+#' persistent local address database used by \code{\link{bkg_geocode_offline}},
+#' following the conventions of \code{\link[tools]{R_user_dir}} (introduced in
+#' R 4.0). This means the data lives in the standard per-package data
+#' directory for the current platform (e.g. under \code{XDG_DATA_HOME} on
+#' Linux, \code{~/Library/Application Support} on macOS, or \code{\%APPDATA\%}
+#' on Windows), rather than in an arbitrary user-chosen folder.
+#'
+#' @details The location can be overridden by setting the environment
+#' variable \code{BKGGEOCODER2_DB_PATH}, e.g. if the database should live on
+#' a shared network location instead. This is mainly meant for advanced use
+#' cases (e.g. a shared install for multiple users) or for testing.
+#'
+#' @returns \code{[character]} A single file path.
+#'
+#' @export
+bkg_db_path <- function() {
+  override <- Sys.getenv("BKGGEOCODER2_DB_PATH", unset = NA)
+  if (!is.na(override) && nzchar(override)) {
+    return(override)
+  }
+  tools::R_user_dir("bkggeocoder2", which = "data")
+}

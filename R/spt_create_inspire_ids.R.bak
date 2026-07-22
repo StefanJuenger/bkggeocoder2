@@ -11,27 +11,27 @@
 #' @export
 
 spt_create_inspire_ids <- function(
-  data,
-  type = c("1km", "100m"),
-  column_name = "Gitter_ID_",
-  combine = FALSE
+    data,
+    type = c("1km", "100m"),
+    column_name = "Gitter_ID_",
+    combine = FALSE
 ) {
-
+  
   if (sf::st_crs(data)$epsg != 3035) {
     data <- sf::st_transform(data, 3035)
   }
-
+  
   coordinate_pairs <- tibble::as_tibble(sf::st_coordinates(data))
   
   id_name <- paste0(column_name, type)
-
+  
   inspire_ids <- sprintf(
     "%sN%sE%s",
     type,
     substr(as.character(coordinate_pairs$Y), 1, 4 + (type == "100m")),
     substr(as.character(coordinate_pairs$X), 1, 4 + (type == "100m"))
   )
-
+  
   if (isTRUE(combine)) {
     inspire_ids <- cbind(data, data.frame(id_name = inspire_ids))
     names(inspire_ids)[names(inspire_ids) == "id_name"] <- id_name

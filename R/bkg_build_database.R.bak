@@ -1,11 +1,13 @@
-#' Build BKG address database
+#' Build the BKG address database (internal worker)
 #'
 #' @description Reads raw BKG address CSV files (one per federal state),
 #' cleans and standardizes address components, and writes a partitioned
 #' Parquet database that can be used for offline geocoding with
-#' \code{\link{bkg_geocode_offline}}. Use this function for the initial
-#' setup of the local database; for refreshing an already existing database
-#' with newer raw data, use \code{\link{bkg_update_database}} instead.
+#' \code{\link{bkg_geocode_offline}}. This is the internal worker function
+#' that does the actual heavy lifting; end users should call
+#' \code{\link{bkg_update_database}} instead, which wraps this function
+#' with staleness checks and backups and works for both the initial build
+#' and later refreshes.
 #'
 #' @param address_data_path \code{[character]}
 #'
@@ -13,7 +15,7 @@
 #' (named \code{ga_<state>.csv}, e.g. \code{ga_nw.csv} for
 #' Nordrhein-Westfalen).
 #'
-#' @param db_target_path \code{[character]}
+#' @param db_path \code{[character]}
 #'
 #' Path to the output directory where the partitioned Parquet database
 #' will be written. The function creates two subdirectories:
@@ -45,7 +47,7 @@
 #' @encoding UTF-8
 #' @md
 #' @noRd
-bkg_build_database <- function(address_data_path, db_target_path) {
+bkg_build_database_impl <- function(address_data_path, db_path) {
   
   laender_names <- c(
     "bb", "be", "bw", "by", "hb", "he", "hh", "mv",
@@ -55,23 +57,23 @@ bkg_build_database <- function(address_data_path, db_target_path) {
   cli::cli_h1("Building BKG address database")
   
   unlink(
-    file.path(db_target_path, "ga"),
+    file.path(db_path, "ga"),
     recursive = TRUE,
     force = TRUE
   )
   
   unlink(
-    file.path(db_target_path, "zip_places"),
+    file.path(db_path, "zip_places"),
     recursive = TRUE,
     force = TRUE
   )
   
   unlink(
-    file.path(db_target_path, "bkg.duckdb"),
+    file.path(db_path, "bkg.duckdb"),
     force = TRUE
   )
   
-  dir.create(db_target_path, recursive = TRUE, showWarnings = FALSE)
+  dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
   
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
@@ -192,7 +194,7 @@ bkg_build_database <- function(address_data_path, db_target_path) {
     glue::glue("
       COPY bkg_ga
       TO '{normalizePath(
-        file.path(db_target_path, 'ga'),
+        file.path(db_path, 'ga'),
         winslash = '/',
         mustWork = FALSE
       )}'
@@ -212,7 +214,7 @@ bkg_build_database <- function(address_data_path, db_target_path) {
   cli::cli_alert_info("Writing ZIP lookup")
   
   dir.create(
-    file.path(db_target_path, "zip_places"),
+    file.path(db_path, "zip_places"),
     recursive = TRUE,
     showWarnings = FALSE
   )
@@ -233,7 +235,7 @@ bkg_build_database <- function(address_data_path, db_target_path) {
   arrow::write_parquet(
     ga_zip_places,
     file.path(
-      db_target_path,
+      db_path,
       "zip_places",
       "ga_zip_places.parquet"
     ),
@@ -247,7 +249,7 @@ bkg_build_database <- function(address_data_path, db_target_path) {
   cli::cli_alert_info("Writing DuckDB database")
   
   db_file <- normalizePath(
-    file.path(db_target_path, "bkg.duckdb"),
+    file.path(db_path, "bkg.duckdb"),
     winslash = "/",
     mustWork = FALSE
   )
@@ -318,7 +320,7 @@ bkg_build_database <- function(address_data_path, db_target_path) {
   jsonlite::write_json(
     version,
     file.path(
-      db_target_path,
+      db_path,
       "version.json"
     ),
     pretty = TRUE,

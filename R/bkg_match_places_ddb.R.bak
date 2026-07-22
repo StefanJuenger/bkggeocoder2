@@ -1,9 +1,10 @@
+#' Match data's places and zip codes against the local database (DuckDB)
+#'
+#' @noRd
 bkg_match_places_ddb <- function(
     .data,
     cols,
-    data_path,
-    data_from_server,
-    credentials_path,
+    db_path,
     place_match_quality = 0.85,
     con,
     verbose
@@ -36,9 +37,7 @@ bkg_match_places_ddb <- function(
   
   zip_places <- bkg_read(
     what = "places",
-    data_from_server = data_from_server,
-    data_path = data_path,
-    credentials_path = credentials_path,
+    db_path = db_path,
     con = con
   )
   
@@ -56,13 +55,13 @@ bkg_match_places_ddb <- function(
   
   duckdb::duckdb_register(con, input_tbl, .data)
   on.exit(
-    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", input_tbl)), 
+    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", input_tbl)),
     add = TRUE
   )
   
   duckdb::duckdb_register(con, ref_tbl, zip_places)
   on.exit(
-    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", ref_tbl)), 
+    DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", ref_tbl)),
     add = TRUE
   )
   

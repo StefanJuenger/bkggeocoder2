@@ -29,11 +29,11 @@ rbind_list <- function(args) {
 
 
 #' Simpler wrapper for regexec and regmatches
-#' 
+#'
 #' @param x A character vector to be matched.
 #' @param pattern Regex expression or term to be looked up in x
 #' @param ... Further arguments passed to regexec.
-#' 
+#'
 #' @noRd
 match_regex <- function(x, pattern, ...) {
   matches <- regexec(pattern, x, ...)
@@ -63,52 +63,49 @@ normalize_key <- function(x) {
     gsub("[^a-z0-9]", "", x = _)
 }
 
-verify_server <- function (credentials_path) {
-  live_fp <- tryCatch(
-    system2(
-      "openssl",
-      c(
-        "s_client",
-        "-connect", "10.6.13.50:8544",
-        "-servername", "10.6.13.50"
-      ),
-      stdout = TRUE,
-      stderr = FALSE
-    ),
-    error = function(e) NULL
-  )
-  
-  if (is.null(live_fp)) {
-    cli::cli_abort(c(
-      "Connection timed out. Address or place file could not be loaded.",
-      "i" = "Increase {.code options(timeout = ...)} to circumvent this issue."
-    ))
+
+# -----------------------------------------------------------------------------
+# Geospatial helpers
+# -----------------------------------------------------------------------------
+
+#' Create 1km and 100m INSPIRE IDs
+#'
+#' Create 1 km² and 100m X 100m INSPIRE IDs from coordinates
+#'
+#' @param data Object of class \code{sf} containing point geometries
+#' @param type Character string for the requested ID type
+#' @param column_name Output column name prefix. Defaults to "Gitter_ID_{type}".
+#' @param combine Whether to combine the input data with the output values.
+#' @return tibble
+#'
+#' @export
+
+spt_create_inspire_ids <- function(
+  data,
+  type = c("1km", "100m"),
+  column_name = "Gitter_ID_",
+  combine = FALSE
+) {
+
+  if (sf::st_crs(data)$epsg != 3035) {
+    data <- sf::st_transform(data, 3035)
   }
-  
-  live_fp <- system2(
-    "openssl",
-    c("x509", "-noout", "-fingerprint", "-sha256"),
-    input = live_fp,
-    stdout = TRUE
+
+  coordinate_pairs <- tibble::as_tibble(sf::st_coordinates(data))
+
+  id_name <- paste0(column_name, type)
+
+  inspire_ids <- sprintf(
+    "%sN%sE%s",
+    type,
+    substr(as.character(coordinate_pairs$Y), 1, 4 + (type == "100m")),
+    substr(as.character(coordinate_pairs$X), 1, 4 + (type == "100m"))
   )
-  
-  local_fp <- system2(
-    "openssl",
-    c(
-      "x509",
-      "-in", credentials_path,
-      "-noout",
-      "-fingerprint",
-      "-sha256"
-    ),
-    stdout = TRUE
-  )
-  
-  if (!identical(live_fp, local_fp)) {
-    cli::cli_abort(c(
-      "Cannot verify the authenticity of the local server certificate.",
-      "!" = "The certificate fingerprint does not match {.path {credentials_path}}.",
-      "i" = "Verify that you are connected to the GESIS intranet and that your certificate is up to date."
-    ))
+
+  if (isTRUE(combine)) {
+    inspire_ids <- cbind(data, data.frame(id_name = inspire_ids))
+    names(inspire_ids)[names(inspire_ids) == "id_name"] <- id_name
+  } else {
+    inspire_ids
   }
 }
