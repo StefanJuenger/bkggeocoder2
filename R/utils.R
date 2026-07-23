@@ -104,11 +104,11 @@ combine_house_number <- function(house_number, house_number_add) {
 
 #' Create 1km and 100m INSPIRE IDs
 #'
-#' Create 1 km² and 100m X 100m INSPIRE IDs from coordinates
+#' Create 1 km x 1 km and 100m x 100m INSPIRE IDs from coordinates
 #'
 #' @param data Object of class \code{sf} containing point geometries
 #' @param type Character string for the requested ID type
-#' @param column_name Output column name prefix. Defaults to "Gitter_ID_{type}".
+#' @param column_name Output column name prefix. Defaults to "Gitter_ID_\{type\}".
 #' @param combine Whether to combine the input data with the output values.
 #' @return tibble
 #'
