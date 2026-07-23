@@ -87,8 +87,10 @@ bkg_db_path <- function() {
 #' \code{ga/} containing address data partitioned by place and
 #' \code{zip_places/} containing a lookup table of places and zip codes.
 #'
-#' @details The function processes address data for all 16 German federal
-#' states. For each state file, it:
+#' @details The function processes address data for whichever state files
+#' are present in \code{address_data_path} (normally all 16 German federal
+#' states, but a subset works too, e.g. for testing). For each state file,
+#' it:
 #' \enumerate{
 #'   \item Drops records with a "katasterinterne Hausnummer" (BKG quality
 #'     code \code{"C"}), which is explicitly not an official house number
@@ -118,10 +120,19 @@ bkg_db_path <- function() {
 #' @noRd
 bkg_build_database_impl <- function(address_data_path, db_path) {
   
-  laender_names <- c(
-    "bb", "be", "bw", "by", "hb", "he", "hh", "mv",
-    "ni", "nw", "rp", "sh", "sl", "sn", "st", "th"
-  )
+  # Auto-discover which state files are actually present, instead of
+  # hardcoding all 16 official state codes. This means the function works
+  # with partial data (e.g. a single state for testing) and never breaks
+  # just because a new/renamed state code shows up.
+  csv_files <- list.files(address_data_path, pattern = "^ga_.*\\.csv$")
+  
+  if (!length(csv_files)) {
+    cli::cli_abort(c(
+      "No {.file ga_<state>.csv} files found in {.path {address_data_path}}."
+    ))
+  }
+  
+  laender_names <- sub("^ga_(.*)\\.csv$", "\\1", csv_files)
   
   cli::cli_h1("Building BKG address database")
   
