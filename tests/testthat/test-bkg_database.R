@@ -222,3 +222,69 @@ test_that("offline geocoding leaves unmatched places with NA scores", {
   expect_true(is.na(result$score))
   expect_true(nrow(attr(result, "unmatched_places")) >= 1)
 })
+
+test_that("offline geocoding matches on cleaned input but still displays the raw input", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    street       = "Teststr.",
+    house_number = "10 .",
+    zip_code     = "12345",
+    place        = "Musterstadt OT Nirgends"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  # Matching succeeded despite the messy input -- proves the invisible
+  # cleaning (expand_street_abbreviation(), clean_house_number_input(),
+  # strip_place_suffix()) is actually being applied.
+  expect_true(result$score > 0.8)
+  expect_equal(result$house_number_output, "10/2")
+  
+  # But the *_input columns show exactly what was entered, unedited.
+  expect_equal(result$street_input, "Teststr.")
+  expect_equal(result$house_number_input, "10 .")
+  expect_equal(result$place_input, "Musterstadt OT Nirgends")
+})
+
+test_that("the *_input/*_output columns work with non-default column names too", {
+  # Regression test: bkg_clean_matched_addresses() used to look up
+  # street_input/house_number_input/zip_code_input/place_input (and the
+  # _output equivalents) under hardcoded English names, regardless of what
+  # the user's own columns were actually called. Whenever those didn't
+  # literally match ("street", "house_number", "zip_code", "place"), the
+  # columns silently went missing from the result (tibble() drops NULL
+  # values without warning) -- this uses realistic German column names to
+  # make sure that can't happen anymore.
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    strasse       = "Teststraße",
+    hausnummer    = "10",
+    postleitzahl  = "12345",
+    ort           = "Musterstadt"
+  )
+  
+  result <- bkg_geocode_offline(
+    addresses,
+    cols = c("strasse", "hausnummer", "postleitzahl", "ort"),
+    db_path = db_dir,
+    verbose = FALSE
+  )
+  
+  expect_true(all(c(
+    "street_input", "house_number_input", "zip_code_input", "place_input",
+    "street_output", "house_number_output", "zip_code_output", "place_output"
+  ) %in% names(result)))
+  
+  expect_equal(result$street_input, "Teststraße")
+  expect_equal(result$house_number_input, "10")
+  expect_equal(result$place_input, "Musterstadt")
+  expect_equal(result$house_number_output, "10/2")
+})

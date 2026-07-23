@@ -20,6 +20,31 @@ test_that("collapse_house_number_range() is vectorized", {
   )
 })
 
+test_that("clean_house_number_input() strips whitespace and periods without touching affixes", {
+  expect_equal(clean_house_number_input("10 a"), "10a")
+  expect_equal(clean_house_number_input("10."), "10")
+  expect_equal(clean_house_number_input("10 . a"), "10a")
+  expect_equal(clean_house_number_input("10/2"), "10/2")
+})
+
+test_that("strip_place_suffix() removes Ortsteil (OT) suffixes", {
+  expect_equal(strip_place_suffix("Musterstadt OT Nebendorf"), "Musterstadt")
+  expect_equal(strip_place_suffix("Musterstadt (OT Nebendorf)"), "Musterstadt")
+  expect_equal(strip_place_suffix("Musterstadt"), "Musterstadt")
+})
+
+test_that("expand_street_abbreviation() expands 'str'/'str.' at end of string and before whitespace", {
+  expect_equal(expand_street_abbreviation("Hauptstr."), "Hauptstraße")
+  expect_equal(expand_street_abbreviation("Hauptstr"), "Hauptstraße")
+  expect_equal(expand_street_abbreviation("Hauptstr. 5"), "Hauptstraße 5")
+  expect_equal(expand_street_abbreviation("Hauptstr 5"), "Hauptstraße 5")
+})
+
+test_that("expand_street_abbreviation() leaves already-correct spellings alone", {
+  expect_equal(expand_street_abbreviation("Musterstraße"), "Musterstraße")
+  expect_equal(expand_street_abbreviation("Musterstrasse"), "Musterstrasse")
+})
+
 local_duckdb_con <- function(envir = parent.frame()) {
   con <- DBI::dbConnect(duckdb::duckdb())
   withr::defer(DBI::dbDisconnect(con, shutdown = TRUE), envir = envir)
