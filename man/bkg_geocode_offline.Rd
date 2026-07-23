@@ -122,14 +122,9 @@ score above 0.9 can be considered a good match. If the score falls below
 }
 \examples{
 \dontrun{
-addresses <- data.frame(
-  street       = "Unter Sachsenhausen",
-  house_number = "6-8",
-  zip_code     = "50667",
-  place        = "K\u00f6ln"
-)
+data(commaddr, package = "bkggeocoder2")
 
-gc <- bkg_geocode_offline(addresses, place_match_quality = 0.7)
+gc <- bkg_geocode_offline(commaddr, cols = 2:5, place_match_quality = 0.7)
 }
 
 }
