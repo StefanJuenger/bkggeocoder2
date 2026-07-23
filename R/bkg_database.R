@@ -14,7 +14,7 @@
 #' only needs to be known in one place.
 #'
 #' @param data_path \code{[character]} Path to the local Parquet database
-#' directory (as created by \code{\link{bkg_build_database}}).
+#' directory (as created by \code{\link{bkg_update_database}}).
 #' @param place_slugs \code{[character]} One or several place slugs (as
 #' created by \code{\link{normalize_file}}).
 #'
@@ -95,10 +95,10 @@ bkg_db_path <- function() {
 #'   \item Drops records with a "katasterinterne Hausnummer" (BKG quality
 #'     code \code{"C"}), which is explicitly not an official house number
 #'     and cannot correspond to a real, addressable location
-#'   \item Constructs the Regionalschlüssel (RS) from administrative key
+#'   \item Constructs the Regionalschluessel (RS) from administrative key
 #'     columns
 #'   \item Standardizes street names (e.g. expands \code{str.} to
-#'     \code{straße})
+#'     \code{strasse})
 #'   \item Removes place name artifacts (e.g. \code{"Ortsteil unbekannt"})
 #'   \item Creates composite address strings for record linkage
 #'   \item Generates a normalized place slug for partitioning
@@ -235,8 +235,8 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
       ,
       street := gsub(
         "Str[.]$",
-        "Straße",
-        gsub("str[.]$", "straße", street)
+        "Stra\u00dfe",
+        gsub("str[.]$", "stra\u00dfe", street)
       )
     ]
     
