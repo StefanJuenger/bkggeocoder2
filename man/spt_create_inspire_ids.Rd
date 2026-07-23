@@ -16,7 +16,7 @@ spt_create_inspire_ids(
 
 \item{type}{Character string for the requested ID type}
 
-\item{column_name}{Output column name prefix. Defaults to "Gitter_ID_{type}".}
+\item{column_name}{Output column name prefix. Defaults to "Gitter_ID_\{type\}".}
 
 \item{combine}{Whether to combine the input data with the output values.}
 }
@@ -24,5 +24,5 @@ spt_create_inspire_ids(
 tibble
 }
 \description{
-Create 1 km² and 100m X 100m INSPIRE IDs from coordinates
+Create 1 km x 1 km and 100m x 100m INSPIRE IDs from coordinates
 }

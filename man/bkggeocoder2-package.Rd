@@ -7,7 +7,7 @@
 \alias{bkggeocoder2-package}
 \title{bkggeocoder2: Offline Geocoding of German Addresses Using Local BKG Data}
 \description{
-Offline geocoding and reverse geocoding of German addresses using record linkage against a local Parquet/DuckDB database built from address data provided by the Bundesamt fuer Kartographie und Geodaesie (BKG). This package is a ground-up rewrite of 'bkggeocoder', focused exclusively on the local, offline geocoding workflow: no server connection, credentials, or data decryption are required. The local address database can be built and refreshed using bkg_build_database() and bkg_update_database().
+Offline geocoding and reverse geocoding of German addresses using record linkage against a local Parquet/DuckDB database built from address data provided by the Bundesamt fuer Kartographie und Geodaesie (BKG). This package is a ground-up rewrite of 'bkggeocoder', focused exclusively on the local, offline geocoding workflow: no server connection, credentials, or data decryption are required. The local address database can be built and refreshed using bkg_update_database().
 }
 \author{
 \strong{Maintainer}: Your Name \email{you@example.org}
