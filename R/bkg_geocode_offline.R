@@ -116,17 +116,17 @@ bkg_geocode_offline <- function(
     house_number_penalty = 0.1,
     verbose = TRUE
 ) {
-
+  
   if (!is.data.frame(.data)) {
     cli::cli_abort("{.var data} must be a dataframe.")
   }
-
+  
   if (length(cols) < 3 || length(cols) > 4) {
     cli::cli_abort("{.var cols} must be of length 3 or 4.")
   }
-
+  
   version_file <- file.path(db_path, "version.json")
-
+  
   if (!dir.exists(db_path) || !file.exists(version_file)) {
     cli::cli_abort(c(
       "No local address database found at:",
@@ -135,15 +135,15 @@ bkg_geocode_offline <- function(
       " " = "{.code bkg_update_database(address_data_path = \"path/to/raw/csvs\")}"
     ))
   }
-
+  
   if (place_match_quality > 1 || place_match_quality < 0) {
     cli::cli_abort("{.var place_match_quality} needs to be a value between 0 and 1.")
   }
-
+  
   if (hierarchical_weight < 0) {
     cli::cli_abort("{.var hierarchical_weight} needs to be a non-negative value.")
   }
-
+  
   if (isTRUE(verbose)) {
     cli::cli_h1("Starting offline geocoding")
     cli::cat_line()
@@ -152,21 +152,21 @@ bkg_geocode_offline <- function(
       "i" = "Targeted quality of place-matching: {.val {place_match_quality}}",
       "i" = "Place weight exponent: {.val {hierarchical_weight}}")
     )
-
+    
     cli::cli_h2("Subsetting data")
   }
-
+  
   cols <- names(.data[cols])
-
+  
   args <- as.list(environment())
   args$.data <- NULL
-
+  
   .data <- cbind(data.frame(.iid = as.numeric(row.names(.data))), .data)
-
+  
   # Matching ----
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-
+  
   place_result <- bkg_match_places_ddb(
     .data[c(".iid", cols)],
     cols = cols,
@@ -175,15 +175,15 @@ bkg_geocode_offline <- function(
     con = con,
     verbose = verbose
   )
-
+  
   unmatched_places <- attr(place_result, "unmatched_places")
   matched_rows <- place_result[place_result$place_matched_flag, ]
   unmatched_rows <- place_result[!place_result$place_matched_flag, ]
-
+  
   if (isTRUE(verbose)) {
     cli::cli_h2("Geocoding input data")
   }
-
+  
   messy_geocoded_data <- bkg_match_addresses_ddb(
     matched_rows,
     cols = cols,
@@ -193,7 +193,7 @@ bkg_geocode_offline <- function(
     con = con,
     verbose = verbose
   )
-
+  
   # Data Cleaning ----
   cleaned_data <- bkg_clean_matched_addresses(
     messy_geocoded_data,
@@ -201,16 +201,16 @@ bkg_geocode_offline <- function(
     identifiers = identifiers,
     verbose = verbose
   )
-
+  
   # Merge geocoded rows with unmatched rows (NA scores/geometry) ----
   if (nrow(unmatched_rows)) {
     empty_sf <- cleaned_data[0, ]
     unmatched_sf <- unmatched_rows[, ".iid", drop = FALSE]
-
+    
     for (col in setdiff(names(empty_sf), c(".iid", "geometry"))) {
       unmatched_sf[[col]] <- NA
     }
-
+    
     unmatched_sf <- sf::st_as_sf(
       unmatched_sf,
       geometry = sf::st_sfc(
@@ -218,11 +218,16 @@ bkg_geocode_offline <- function(
         crs = sf::st_crs(cleaned_data)
       )
     )
-
+    
     cleaned_data <- rbind(cleaned_data, unmatched_sf[, names(cleaned_data)])
   }
-
+  
   if (isTRUE(join_with_original)) {
+    # suffixes handles the rare edge case where one of the user's own extra
+    # columns (outside cols) happens to collide with an internal output
+    # name (e.g. a column literally called "score" or "RS"); it does
+    # nothing in the common case, since cleaned_data's own "_input"/"_output"
+    # columns never share a name with .data's raw columns to begin with.
     cleaned_data <- merge(
       .data,
       cleaned_data,
@@ -231,16 +236,15 @@ bkg_geocode_offline <- function(
       sort = TRUE,
       suffixes = c("", "_input")
     )
-
+    
     cleaned_data <- sf::st_as_sf(tibble::as_tibble(cleaned_data))
-    cleaned_data <- cleaned_data[!names(cleaned_data) %in% paste0(cols, "_input")]
   }
-
+  
   # Remove internal id
   cleaned_data$.iid <- NULL
-
+  
   cleaned_data <- sf::st_transform(cleaned_data, crs = crs)
-
+  
   # Create Output ----
   structure(
     cleaned_data,
