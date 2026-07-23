@@ -10,9 +10,8 @@
 #'
 #' @description Central helper that constructs the file glob(s) pointing to
 #' the \code{ga/place_slug=<slug>/*.parquet} partitions for one or several
-#' places. Used by both \code{\link{bkg_read}} and
-#' \code{bkg_match_addresses_ddb} so that the on-disk layout only needs to be
-#' known in one place.
+#' places. Used by \code{bkg_match_addresses_ddb} so that the on-disk layout
+#' only needs to be known in one place.
 #'
 #' @param data_path \code{[character]} Path to the local Parquet database
 #' directory (as created by \code{\link{bkg_build_database}}).
@@ -58,97 +57,6 @@ bkg_db_path <- function() {
 }
 
 
-# -----------------------------------------------------------------------------
-# Reading the local database
-# -----------------------------------------------------------------------------
-
-#' Read local BKG address database
-#'
-#' @description Reads the locally stored, partitioned Parquet address
-#' database built by \code{\link{bkg_build_database}} / updated by
-#' \code{\link{bkg_update_database}}. Used internally by the offline
-#' geocoding functions to retrieve either the ZIP/place lookup table or
-#' address data for a set of places. Unlike previous versions of this
-#' package, this function only ever reads local files -- no server access
-#' or decryption is involved.
-#'
-#' @param place \code{[character]}
-#'
-#' One or several place slugs (as created by \code{\link{normalize_file}})
-#' for which address data should be read. Ignored if \code{what = "places"}.
-#' @param what \code{[character]}
-#'
-#' Type of dataset to be read. If \code{"places"}, reads the ZIP/place lookup
-#' table. If \code{"addresses"}, reads address data for the places given in
-#' \code{place}.
-#' @param db_path \code{[character]}
-#'
-#' Path to the local Parquet database directory (as created by
-#' \code{\link{bkg_build_database}}).
-#' @param con A DuckDB connection. If \code{NULL}, a temporary connection is
-#' created and closed automatically on exit.
-#'
-#' @returns A \code{data.table} containing the requested data.
-#'
-#' @noRd
-bkg_read <- function(
-    place = NULL,
-    what = c("addresses", "places"),
-    db_path = bkg_db_path(),
-    con = NULL
-) {
-  what <- match.arg(what)
-
-  if (what == "places") {
-    paths <- file.path(db_path, "zip_places", "ga_zip_places.parquet")
-  } else {
-    if (is.null(place)) {
-      cli::cli_abort("{.arg place} must be provided if {.code what = \"addresses\"}.")
-    }
-    paths <- bkg_ga_parquet_glob(db_path, place)
-  }
-
-  own_con <- is.null(con)
-  if (own_con) {
-    con <- DBI::dbConnect(duckdb::duckdb())
-    on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-  }
-
-  sql_paths <- paste(DBI::dbQuoteString(con, paths), collapse = ",")
-  view_name <- paste0("bkg_", sample.int(1e9, 1))
-
-  out <- tryCatch({
-    DBI::dbExecute(
-      con,
-      sprintf(
-        "
-        CREATE OR REPLACE TEMP VIEW %s AS
-        SELECT *
-        FROM read_parquet([%s])
-        ",
-        view_name,
-        sql_paths
-      )
-    )
-
-    dplyr::tbl(con, view_name) |>
-      dplyr::collect() |>
-      data.table::as.data.table()
-  }, error = function(e) NULL)
-
-  if (is.null(out)) {
-    cli::cli_abort(c(
-      "Cannot read {.val {what}} data from {.path {db_path}}.",
-      "i" = paste(
-        "Make sure the local address database exists.",
-        "Use {.fun bkg_build_database} or {.fun bkg_update_database}",
-        "to create/update it."
-      )
-    ))
-  }
-
-  out
-}
 
 
 # -----------------------------------------------------------------------------
@@ -182,6 +90,9 @@ bkg_read <- function(
 #' @details The function processes address data for all 16 German federal
 #' states. For each state file, it:
 #' \enumerate{
+#'   \item Drops records with a "katasterinterne Hausnummer" (BKG quality
+#'     code \code{"C"}), which is explicitly not an official house number
+#'     and cannot correspond to a real, addressable location
 #'   \item Constructs the Regionalschlüssel (RS) from administrative key
 #'     columns
 #'   \item Standardizes street names (e.g. expands \code{str.} to
@@ -193,8 +104,9 @@ bkg_read <- function(
 #'
 #' The output is written as a Snappy-compressed Parquet dataset partitioned
 #' by \code{place_slug} using DuckDB. A separate Parquet lookup table
-#' mapping places and zip codes is also created, as well as a persistent
-#' DuckDB database file and a \code{version.json} metadata file.
+#' mapping places and zip codes is also created, as well as a
+#' \code{version.json} metadata file (which records how many records were
+#' dropped for having a katasterinterne house number).
 #'
 #' @returns Called for its side effect (writing Parquet files). Returns
 #' \code{NULL} invisibly.
@@ -205,41 +117,45 @@ bkg_read <- function(
 #' @md
 #' @noRd
 bkg_build_database_impl <- function(address_data_path, db_path) {
-
+  
   laender_names <- c(
     "bb", "be", "bw", "by", "hb", "he", "hh", "mv",
     "ni", "nw", "rp", "sh", "sl", "sn", "st", "th"
   )
-
+  
   cli::cli_h1("Building BKG address database")
-
+  
   unlink(
     file.path(db_path, "ga"),
     recursive = TRUE,
     force = TRUE
   )
-
+  
   unlink(
     file.path(db_path, "zip_places"),
     recursive = TRUE,
     force = TRUE
   )
-
+  
+  # Removes a leftover bkg.duckdb from versions prior to the removal of the
+  # (unused) persistent DuckDB copy of the address data -- this package no
+  # longer writes one, but cleans up any stale file from an earlier build.
   unlink(
     file.path(db_path, "bkg.duckdb"),
     force = TRUE
   )
-
+  
   dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
-
+  
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-
+  
   DBI::dbExecute(con, "
     CREATE TABLE bkg_ga (
       street VARCHAR,
       house_number VARCHAR,
       house_number_add VARCHAR,
+      house_number_full VARCHAR,
       zip_code VARCHAR,
       place VARCHAR,
       place_add VARCHAR,
@@ -251,31 +167,44 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
       place_slug VARCHAR
     )
   ")
-
+  
   pb <- cli::cli_progress_bar(
     total = length(laender_names),
     format = "Reading state files [{cli::pb_bar}] {cli::pb_percent}"
   )
-
+  
+  n_dropped <- 0L
+  
   for (idx in seq_along(laender_names)) {
-
+    
     cli::cli_progress_update(id = pb, set = idx)
-
+    
     i <- laender_names[[idx]]
-
+    
     tmp <- data.table::fread(
       file.path(address_data_path, glue::glue("ga_{i}.csv")),
       colClasses = "character",
       encoding = "UTF-8",
       showProgress = FALSE
     )
-
+    
+    # Drop records with a "katasterinterne Hausnummer" (V3 == "C"), which is
+    # explicitly NOT an official house number per the BKG field
+    # documentation ("Qualitaet der georeferenzierten Gebaeudeadresse") --
+    # its "house number" is actually an internal cadastre identifier
+    # (typically long, purely numeric strings) and would corrupt address
+    # matching. Kept: "A" (official, in building), "B" (official, in
+    # parcel), "P" (Deutsche Post coordinate).
+    n_before <- nrow(tmp)
+    tmp <- tmp[V3 %in% c("A", "B", "P")]
+    n_dropped <- n_dropped + (n_before - nrow(tmp))
+    
     tmp[
       ,
       RS := do.call(paste0, .SD),
       .SDcols = c("V4", "V5", "V6", "V7", "V8")
     ]
-
+    
     tmp <- tmp[
       ,
       .(
@@ -290,7 +219,7 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
         y = gsub(",", ".", V14)
       )
     ]
-
+    
     tmp[
       ,
       street := gsub(
@@ -299,21 +228,25 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
         gsub("str[.]$", "straße", street)
       )
     ]
-
+    
+    tmp[
+      ,
+      house_number_full := combine_house_number(house_number, house_number_add)
+    ]
+    
     tmp[
       ,
       whole_address := paste0(
         street,
         " ",
-        house_number,
-        house_number_add,
+        house_number_full,
         " ",
         zip_code,
         " ",
         place
       )
     ]
-
+    
     tmp[
       ,
       whole_address_add := paste0(
@@ -322,30 +255,37 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
         place_add
       )
     ]
-
+    
     tmp[
       ,
       place_slug := normalize_file(place)
     ]
-
+    
     DBI::dbAppendTable(
       con,
       "bkg_ga",
       tmp
     )
-
+    
     rm(tmp)
     gc()
   }
-
+  
   cli::cli_progress_done(id = pb)
-
+  
+  if (n_dropped > 0) {
+    cli::cli_alert_info(paste(
+      "Dropped {.val {n_dropped}} record{?s} with a",
+      "katasterinterne (non-official) house number."
+    ))
+  }
+  
   # --------------------------------------------------
   # Partitionierte Parquet-Dateien
   # --------------------------------------------------
-
+  
   cli::cli_alert_info("Writing partitioned dataset")
-
+  
   DBI::dbExecute(
     con,
     glue::glue("
@@ -363,19 +303,19 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
       )
     ")
   )
-
+  
   # --------------------------------------------------
   # ZIP-Lookup
   # --------------------------------------------------
-
+  
   cli::cli_alert_info("Writing ZIP lookup")
-
+  
   dir.create(
     file.path(db_path, "zip_places"),
     recursive = TRUE,
     showWarnings = FALSE
   )
-
+  
   ga_zip_places <- DBI::dbGetQuery(
     con,
     "
@@ -388,7 +328,7 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
     ORDER BY place
     "
   )
-
+  
   arrow::write_parquet(
     ga_zip_places,
     file.path(
@@ -398,69 +338,13 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
     ),
     compression = "snappy"
   )
-
-  # --------------------------------------------------
-  # Persistente DuckDB-Datenbank
-  # --------------------------------------------------
-
-  cli::cli_alert_info("Writing DuckDB database")
-
-  db_file <- normalizePath(
-    file.path(db_path, "bkg.duckdb"),
-    winslash = "/",
-    mustWork = FALSE
-  )
-
-  DBI::dbExecute(
-    con,
-    glue::glue("
-      ATTACH '{db_file}' AS pkgdb;
-    ")
-  )
-
-  DBI::dbExecute(
-    con,
-    "
-    CREATE TABLE pkgdb.bkg_ga AS
-    SELECT *
-    FROM bkg_ga
-    ORDER BY
-      place_slug,
-      zip_code,
-      street,
-      house_number;
-    "
-  )
-
-  DBI::dbWriteTable(
-    con,
-    DBI::Id(
-      schema = "pkgdb",
-      table = "ga_zip_places"
-    ),
-    ga_zip_places,
-    overwrite = TRUE
-  )
-
-  DBI::dbExecute(
-    con,
-    "
-    CREATE INDEX idx_place_zip
-    ON pkgdb.bkg_ga(place_slug, zip_code);
-    "
-  )
-
-  DBI::dbExecute(
-    con,
-    "DETACH pkgdb"
-  )
-
+  
   # --------------------------------------------------
   # Version / Metadaten
   # --------------------------------------------------
-
+  
   cli::cli_alert_info("Writing metadata")
-
+  
   version <- list(
     version = format(Sys.Date(), "%Y-%m-%d"),
     created = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
@@ -471,9 +355,10 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
     n_places = DBI::dbGetQuery(
       con,
       "SELECT COUNT(DISTINCT place_slug) AS n FROM bkg_ga"
-    )$n
+    )$n,
+    n_dropped_katasterintern = n_dropped
   )
-
+  
   jsonlite::write_json(
     version,
     file.path(
@@ -483,9 +368,9 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
     pretty = TRUE,
     auto_unbox = TRUE
   )
-
+  
   cli::cli_alert_success("Done")
-
+  
   invisible(NULL)
 }
 
@@ -525,7 +410,10 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
 #'
 #' Whether to keep a dated backup copy of an existing database directory
 #' before it gets overwritten. Ignored on the initial build (there is
-#' nothing to back up yet). Defaults to \code{TRUE}.
+#' nothing to back up yet). Defaults to \code{FALSE}, since the local
+#' address database can be large and a backup temporarily doubles the disk
+#' space it uses; set to \code{TRUE} if you want a safety copy before a
+#' refresh.
 #'
 #' @returns \code{TRUE} if the database was (re-)built, \code{FALSE} if it
 #' was already up to date (invisibly).
@@ -551,22 +439,22 @@ bkg_update_database <- function(
     address_data_path,
     db_path = bkg_db_path(),
     force = FALSE,
-    backup = TRUE
+    backup = FALSE
 ) {
   check_lgl(force)
   check_lgl(backup)
-
+  
   if (!dir.exists(address_data_path)) {
     cli::cli_abort("{.path {address_data_path}} does not exist.")
   }
-
+  
   version_file <- file.path(db_path, "version.json")
   old_version <- if (file.exists(version_file)) {
     jsonlite::read_json(version_file)
   } else NULL
-
+  
   is_initial_build <- is.null(old_version)
-
+  
   if (is_initial_build) {
     cli::cli_h2("Setting up local BKG address database")
     cli::cli_bullets(c(
@@ -582,23 +470,23 @@ bkg_update_database <- function(
     ))
     cli::cat_line()
   }
-
+  
   if (!isTRUE(force) && !is_initial_build) {
     source_files <- list.files(
       address_data_path,
       pattern = "^ga_.*\\.csv$",
       full.names = TRUE
     )
-
+    
     if (!length(source_files)) {
       cli::cli_abort(c(
         "No {.file ga_<state>.csv} files found in {.path {address_data_path}}."
       ))
     }
-
+    
     newest_source <- max(file.mtime(source_files))
     db_created <- as.POSIXct(old_version$created)
-
+    
     if (newest_source <= db_created) {
       cli::cli_inform(c(
         "i" = "Database is already up to date (created {.val {old_version$created}}).",
@@ -607,14 +495,14 @@ bkg_update_database <- function(
       return(invisible(FALSE))
     }
   }
-
+  
   if (isTRUE(backup) && !is_initial_build && dir.exists(db_path)) {
     backup_path <- paste0(
       db_path, "_backup_", format(Sys.Date(), "%Y%m%d")
     )
-
+    
     cli::cli_alert_info("Backing up existing database to {.path {backup_path}}")
-
+    
     unlink(backup_path, recursive = TRUE, force = TRUE)
     dir.create(dirname(backup_path), recursive = TRUE, showWarnings = FALSE)
     file.copy(db_path, dirname(backup_path), recursive = TRUE)
@@ -623,12 +511,12 @@ bkg_update_database <- function(
       backup_path
     )
   }
-
+  
   dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
   bkg_build_database_impl(address_data_path, db_path)
-
+  
   new_version <- jsonlite::read_json(version_file)
-
+  
   cli::cli_alert_success(paste0(
     "Database ",
     if (is_initial_build) "built" else "updated",
@@ -636,6 +524,6 @@ bkg_update_database <- function(
     "{old_version$version %||% 'none'} -> {new_version$version} ",
     "({new_version$n_addresses} addresses, {new_version$n_places} places)"
   ))
-
+  
   invisible(TRUE)
 }
