@@ -5,35 +5,56 @@
 
 <!-- badges: start -->
 
+[![Project Status:
+Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 [![Lifecycle:
 experimental](https://img.shields.io/badge/lifecycle-experimental-red.svg)](https://www.tidyverse.org/lifecycle/#experimental)
+![Language:
+R](https://img.shields.io/badge/Language-R_≥_4.3-2166ac?logo=r)
+<!-- [![R-CMD-check.yaml](https://github.com/denabel/gxc/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/denabel/gxc/actions/workflows/R-CMD-check.yaml) -->
+<!-- [![Codecov test -->
+<!-- coverage](https://codecov.io/gh/denabel/gxc/graph/badge.svg)](https://app.codecov.io/gh/denabel/gxc) -->
+[![license](https://img.shields.io/github/license/mashape/apistatus.svg)](https://choosealicense.com/licenses/mit/)
+![Last
+updated](https://img.shields.io/github/last-commit/StefanJuenger/bkggeocoder2?label=Last%20updated&color=636e72)
+<!-- 
+[![pkgcheck](https://github.com/denabel/gxc/workflows/pkgcheck/badge.svg)](https://github.com/denabel/gxc/actions?query=workflow%3Apkgcheck)
 
 <!-- badges: end -->
 
-`bkggeocoder2` is an R interface to the data and services of the [Federal
-Agency of Cartography and Geodesy
-(BKG)](https://gdz.bkg.bund.de/index.php/default/webanwendungen/bkg-geocoder.html)
-in Germany. The package contains two main features:
+> **Experimental rewrite.** `bkggeocoder2` is a ground-up rewrite of
+> [`bkggeocoder`](https://github.com/StefanJuenger/bkggeocoder), focused
+> exclusively on **offline** geocoding against a local address database.
+> It is **not** a drop-in replacement: the online geocoding functions
+> (`bkg_geocode`, `bkg_reverse`), the server-based data access, and the
+> encrypted-data workflow from `bkggeocoder` have all been removed. If
+> you relied on those features, stay on `bkggeocoder`. This package is
+> under active development and its API, database schema, and matching
+> logic may all still change without notice.
 
-- `bkg_geocode_offline`: Offline geocoding based on raw address data
-- `bkg_geocode`: Online geocoding through the BKG geocoding API
-  (`gdz_geokodierung`)
+`bkggeocoder2` provides offline geocoding of German addresses using a
+local address/coordinate database built from raw address data provided
+by the [Federal Agency of Cartography and Geodesy
+(BKG)](https://gdz.bkg.bund.de/index.php/default/webanwendungen/bkg-geocoder.html).
+Its main functions are:
 
-**WARNING**: The routines for geocoding and also the way the data are
-provided are still in the process of testing. Please be aware that some
-things may change in the future.
+- `bkg_update_database()`: Build or refresh the local address database
+  from raw BKG address data (works both for the initial build and later
+  refreshes)
+- `bkg_geocode_offline()`: Offline geocoding of structured address data
+  (street, house number, zip code, place) against the local database
+
+**WARNING**: This package is in active development. The matching logic,
+the local database schema, and the public API may all still change.
 
 ## Requirements
 
-Note that the use of BKG address data is restricted. At the very least,
-you need access to the [BKG geocoding
-API](https://gdz.bkg.bund.de/index.php/default/geokodierungsdienst-opensearch-der-adv-fur-adressen-und-geonamen-gdz-geokodierung.html)
-to use the online geocoding functions. Additionally, access to the raw
-encrypted BKG data is required to use the offline geocoding features and
-a set of credentials to decrypt the data. Before installing the package,
-make sure you fulfill these requirements. In any case, this repository
-serves as a means to make geocoding workflows using this package
-transparent and reproducible.
+Note that the use of BKG address data is restricted. You need access to
+the raw BKG address data (`ga_<state>.csv` files, one per federal state)
+to build the local database used by `bkg_geocode_offline()`. Unlike
+`bkggeocoder`, this package does not require any server connection,
+credentials, or data decryption – once built, the database lives
+entirely on your local machine.
 
 When using and publishing the results of the geocoding functions in this
 package, always refer to the data source as follows:
@@ -48,7 +69,6 @@ version using the following code:
 
 ``` r
 if (!require(pak)) install.packages("pak")
-
 pak::pkg_install("StefanJuenger/bkggeocoder2")
 ```
 
@@ -56,11 +76,24 @@ The development version can be installed using:
 
 ``` r
 if (!require(pak)) install.packages("pak")
-
 pak::pkg_install("StefanJuenger/bkggeocoder2@dev")
 ```
 
-## Resources
+## Usage
 
-[![IMAGE ALT TEXT
-HERE](https://img.youtube.com/vi/ZnA21LyKK88/0.jpg)](https://www.youtube.com/watch?v=ZnA21LyKK88)
+``` r
+library(bkggeocoder2)
+
+# Build the local database once (or refresh it later with the same call)
+bkg_update_database(address_data_path = "path/to/raw/bkg/csvs")
+
+# Geocode structured address data
+addresses <- data.frame(
+  street       = "Unter Sachsenhausen",
+  house_number = "6-8",
+  zip_code     = "50667",
+  place        = "Köln"
+)
+
+bkg_geocode_offline(addresses)
+```
