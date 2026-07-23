@@ -88,12 +88,13 @@ library(bkggeocoder2)
 bkg_update_database(address_data_path = "path/to/raw/bkg/csvs")
 
 # Geocode structured address data
-addresses <- data.frame(
-  street       = "Unter Sachsenhausen",
-  house_number = "6-8",
-  zip_code     = "50667",
-  place        = "Köln"
-)
+addresses <- 
+  data.frame(
+    street = "Unter Sachsenhausen",
+    house_number = "6-8",
+    zip_code = "50667",
+    place = "Köln"
+  )
 
-bkg_geocode_offline(addresses)
+bkg_geocode_offline(addresses, cols = c(1:4))
 ```

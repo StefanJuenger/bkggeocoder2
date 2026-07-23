@@ -38,10 +38,10 @@ address/coordinate database built from raw address data provided by the
 Its main functions are:
 
 - `bkg_update_database()`: Build or refresh the local address database from
-  raw BKG address data (works both for the initial build and later
-  refreshes)
+raw BKG address data (works both for the initial build and later
+refreshes)
 - `bkg_geocode_offline()`: Offline geocoding of structured address data
-  (street, house number, zip code, place) against the local database
+(street, house number, zip code, place) against the local database
 
 **WARNING**: This package is in active development. The matching logic, the
 local database schema, and the public API may all still change.
@@ -85,12 +85,13 @@ library(bkggeocoder2)
 bkg_update_database(address_data_path = "path/to/raw/bkg/csvs")
 
 # Geocode structured address data
-addresses <- data.frame(
-  street       = "Unter Sachsenhausen",
-  house_number = "6-8",
-  zip_code     = "50667",
-  place        = "Köln"
-)
+addresses <- 
+  data.frame(
+    street = "Unter Sachsenhausen",
+    house_number = "6-8",
+    zip_code = "50667",
+    place = "Köln"
+  )
 
-bkg_geocode_offline(addresses)
+bkg_geocode_offline(addresses, cols = c(1:4))
 ```
