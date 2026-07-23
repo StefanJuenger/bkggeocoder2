@@ -10,19 +10,18 @@ Description: Offline geocoding and reverse geocoding of German addresses
     (BKG). This package is a ground-up rewrite of 'bkggeocoder', focused
     exclusively on the local, offline geocoding workflow: no server
     connection, credentials, or data decryption are required. The local
-    address database can be built and refreshed using bkg_build_database()
-    and bkg_update_database().
+    address database can be built and refreshed using
+    bkg_update_database().
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
+RoxygenNote: 7.3.1
 Depends:
     R (>= 4.1.0)
 Imports:
     cli,
     data.table,
     DBI,
-    dplyr,
     duckdb,
     glue,
     jsonlite,
@@ -34,5 +33,6 @@ Suggests:
     arrow,
     openxlsx,
     readr,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Config/testthat/edition: 3
