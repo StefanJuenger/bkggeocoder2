@@ -5,10 +5,9 @@
 #'
 #' @description Geocoding of multiple addresses using record linkage against
 #' a local address/coordinate database (built from BKG data via
-#' \code{\link{bkg_build_database}} / \code{\link{bkg_update_database}}).
-#' Unlike previous versions of this package, this function works entirely
-#' offline against a local Parquet database -- no server connection is
-#' required.
+#' \code{\link{bkg_update_database}}). Unlike previous versions of this
+#' package, this function works entirely offline against a local Parquet
+#' database -- no server connection is required.
 #'
 #' @param .data \code{[data.frame]}
 #'
@@ -42,7 +41,7 @@
 #'
 #' Territorial identifiers to be included in the output. Can be one or
 #' several of \code{"rs"}, \code{"nuts"} and \code{"inspire"}. \code{"rs"} is
-#' short for Regionalschlüssel and includes all variations of the official
+#' short for Regionalschluessel and includes all variations of the official
 #' municipality key of Germany. \code{"nuts"} includes all NUTS codes from
 #' NUTS-1 to NUTS-3. \code{"inspire"} includes identifiers for the 100m and
 #' 1km INSPIRE grids. If \code{TRUE}, includes all of the aforementioned
@@ -95,9 +94,14 @@
 #'
 #' @examples
 #' \dontrun{
-#' data(commaddr, package = "bkggeocoder2")
+#' addresses <- data.frame(
+#'   street       = "Unter Sachsenhausen",
+#'   house_number = "6-8",
+#'   zip_code     = "50667",
+#'   place        = "K\u00f6ln"
+#' )
 #'
-#' gc <- bkg_geocode_offline(commaddr, cols = 2:5, place_match_quality = 0.7)
+#' gc <- bkg_geocode_offline(addresses, place_match_quality = 0.7)
 #' }
 #'
 #' @encoding UTF-8
