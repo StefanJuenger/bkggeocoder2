@@ -32,6 +32,37 @@ nk_plain <- function(expr) {
   sprintf("regexp_replace(%s, '[^a-z0-9]', '', 'g')", nk(expr))
 }
 
+# -----------------------------------------------------------------------------
+# Shared R-side input normalization helpers
+# -----------------------------------------------------------------------------
+
+#' Collapse a house number range down to its first number
+#'
+#' @description House number ranges (e.g. "13-15") don't exist as a single
+#' row in the reference data -- only the individual house numbers "13",
+#' "14", "15" do. For MATCHING purposes, a range needs to be collapsed down
+#' to its first number (mirroring how such ranges have always been
+#' resolved); comparing the full range string via jaro_winkler instead can
+#' match an unrelated house number that happens to share many characters
+#' with the range string (e.g. "13-15" is closer to "135" than to "13" in
+#' pure character-overlap terms). Inputs that are not a range (a plain
+#' number, a number with a letter suffix, or a number with a "/"-style
+#' affix) are returned unchanged.
+#'
+#' @param x \code{[character]} Raw house number input.
+#'
+#' @returns \code{[character]} \code{x}, with any range collapsed to its
+#' first number.
+#'
+#' @noRd
+collapse_house_number_range <- function(x) {
+  gsub(
+    "^([0-9]+[a-zA-Z]?)\\s*[-\u2013]\\s*[0-9]+[a-zA-Z]?$",
+    "\\1",
+    x
+  )
+}
+
 # Street normalization:
 #   1. nk() handles umlauts+accents+lower ("straße" -> "strasse")
 #   2. Reduce strasse/weg at WORD BOUNDARIES (\b)
@@ -270,11 +301,7 @@ bkg_match_addresses_ddb <- function(
   # string via jaro_winkler instead can match an unrelated house number that
   # happens to share many characters with the range string (e.g. "13-15" is
   # closer to "135" than to "13" in pure character-overlap terms).
-  matched_data$hn_input_key <- gsub(
-    "^([0-9]+[a-zA-Z]?)\\s*[-\u2013]\\s*[0-9]+[a-zA-Z]?$",
-    "\\1",
-    matched_data$hn_input
-  )
+  matched_data$hn_input_key <- collapse_house_number_range(matched_data$hn_input)
   
   # Build parquet paths for relevant places only ----
   relevant_slugs <- unique(matched_data$place_slug)
