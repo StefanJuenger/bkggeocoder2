@@ -12,7 +12,7 @@ output: github_document
 Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-red.svg)](https://www.tidyverse.org/lifecycle/#experimental)
 ![Language: R](https://img.shields.io/badge/Language-R_≥_4.3-2166ac?logo=r)
-[![R-CMD-check.yaml](https://github.com/StefanJuenger/bkggeocoder2/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/StefanJuenger/bkggeocoder2/actions/workflows/R-CMD-check.yaml)
+[![R-CMD-check](https://github.com/StefanJuenger/bkggeocoder2/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/StefanJuenger/bkggeocoder2/actions/workflows/R-CMD-check.yaml)
 [![Codecov test
 coverage](https://codecov.io/gh/StefanJuenger/bkggeocoder2/graph/badge.svg)](https://app.codecov.io/gh/denabel/gxc)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)](https://choosealicense.com/licenses/mit/)
