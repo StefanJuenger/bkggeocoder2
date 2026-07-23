@@ -7,3 +7,4 @@
 ^results$
 ^\.positai$
 ^\.claude$
+^\.github$

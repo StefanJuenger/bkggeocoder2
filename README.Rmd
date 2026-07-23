@@ -12,14 +12,14 @@ output: github_document
 Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-red.svg)](https://www.tidyverse.org/lifecycle/#experimental)
 ![Language: R](https://img.shields.io/badge/Language-R_≥_4.3-2166ac?logo=r)
-<!-- [![R-CMD-check.yaml](https://github.com/denabel/gxc/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/denabel/gxc/actions/workflows/R-CMD-check.yaml) -->
-<!-- [![Codecov test -->
-<!-- coverage](https://codecov.io/gh/denabel/gxc/graph/badge.svg)](https://app.codecov.io/gh/denabel/gxc) -->
+[![R-CMD-check.yaml](https://github.com/StefanJuenger/bkggeocoder2/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/StefanJuenger/bkggeocoder2/actions/workflows/R-CMD-check.yaml)
+[![Codecov test
+coverage](https://codecov.io/gh/StefanJuenger/bkggeocoder2/graph/badge.svg)](https://app.codecov.io/gh/denabel/gxc)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)](https://choosealicense.com/licenses/mit/)
 ![Last updated](https://img.shields.io/github/last-commit/StefanJuenger/bkggeocoder2?label=Last%20updated&color=636e72)
 <!-- 
 [![pkgcheck](https://github.com/denabel/gxc/workflows/pkgcheck/badge.svg)](https://github.com/denabel/gxc/actions?query=workflow%3Apkgcheck)
-
+[![Codecov test coverage](https://codecov.io/gh/StefanJuenger/bkggeocoder2/graph/badge.svg)](https://app.codecov.io/gh/StefanJuenger/bkggeocoder2)
 <!-- badges: end -->
 
 > **Experimental rewrite.** `bkggeocoder2` is a ground-up rewrite of
