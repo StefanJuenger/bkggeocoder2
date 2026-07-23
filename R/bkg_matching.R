@@ -18,7 +18,7 @@ nk <- function(expr) {
     paste0(
       "lower(strip_accents(",
       "replace(replace(replace(replace(replace(replace(replace(",
-      "%s, 'ä','ae'), 'ö','oe'), 'ü','ue'), 'ß','ss'), 'Ä','Ae'), 'Ö','Oe'), 'Ü','Ue')",
+      "%s, '\u00e4','ae'), '\u00f6','oe'), '\u00fc','ue'), '\u00df','ss'), '\u00c4','Ae'), '\u00d6','Oe'), '\u00dc','Ue')",
       "))"
     ),
     expr
@@ -74,15 +74,16 @@ strip_place_suffix <- function(x) {
   x
 }
 
-#' Expand abbreviated "str"/"str." to "straße"
+#' Expand abbreviated "str"/"str." to "strasse"
 #'
 #' @description Handles both "Hauptstr. 5" (abbreviation followed by
 #' whitespace) and "Hauptstr"/"Hauptstr." (abbreviation at the very end of
 #' the string, e.g. when street and house number are given in separate
 #' columns). Old spellings ("strasse"/"Strasse") don't need separate
-#' handling here: \code{nk()} further downstream already treats "ß" and
-#' "ss" as equivalent for comparison, so both spellings compare equally
-#' without any extra normalization at this stage.
+#' handling here: \code{nk()} further downstream already treats "ss" (its
+#' escaped/transliterated form of sharp s) as equivalent for comparison, so
+#' both spellings compare equally without any extra normalization at this
+#' stage.
 #'
 #' @param x \code{[character]}
 #'
@@ -90,7 +91,7 @@ strip_place_suffix <- function(x) {
 #'
 #' @noRd
 expand_street_abbreviation <- function(x) {
-  gsub("str\\.?(?=$|\\s)", "straße", x, ignore.case = TRUE, perl = TRUE)
+  gsub("str\\.?(?=$|\\s)", "stra\u00dfe", x, ignore.case = TRUE, perl = TRUE)
 }
 
 #' Collapse a house number range down to its first number
@@ -121,7 +122,7 @@ collapse_house_number_range <- function(x) {
 }
 
 # Street normalization:
-#   1. nk() handles umlauts+accents+lower ("straße" -> "strasse")
+#   1. nk() handles umlauts+accents+lower ("strasse/stra\u00dfe" spellings)
 #   2. Reduce strasse/weg at WORD BOUNDARIES (\b)
 #   3. Strip all non-alphanumeric chars
 nk_street <- function(expr) {
@@ -372,7 +373,7 @@ bkg_match_addresses_ddb <- function(
     matched_data$street_raw
   )
   
-  # Expand "str"/"str." to "straße" (matching-key only, see
+  # Expand "str"/"str." to "strasse" (matching-key only, see
   # expand_street_abbreviation()).
   matched_data$street_clean <- expand_street_abbreviation(street_for_matching)
   
