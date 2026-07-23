@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 720" width="1000" height="1059">
+<title>bkggeocoder2 hex sticker</title>
+<desc>Hexagonal package logo for bkggeocoder2, filled with the GESIS testimonial gradient from blue to berry, wordmark in white and pink, with a simplified route-with-pins illustration in pink.</desc>
+<defs>
+<linearGradient id="gsTestimonial" x1="5%" y1="95%" x2="45%" y2="0%">
+<stop offset="0%" stop-color="#0095DB"/>
+<stop offset="52%" stop-color="#004388"/>
+<stop offset="100%" stop-color="#662F74"/>
+</linearGradient>
+</defs>
+<polygon points="340,40 617.12,200 617.12,520 340,680 62.88,520 62.88,200" fill="url(#gsTestimonial)"/>
+<text x="340" y="290" text-anchor="middle" font-family="Liberation Sans, Arial, Helvetica, sans-serif" font-weight="700" font-size="62" letter-spacing="-1">
+<tspan fill="#FFFFFF">bkggeocoder</tspan><tspan fill="#D20064">2</tspan>
+</text>
+<path d="M150,470 C210,500 250,445 300,455 C350,465 390,405 470,400" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.85"/>
+<g>
+<circle cx="200" cy="415" r="16" fill="#D20064"/>
+<path d="M200,431 L212,455 L188,455 Z" fill="#D20064"/>
+<circle cx="200" cy="415" r="6" fill="#004388"/>
+</g>
+<g>
+<rect x="184" y="465" width="32" height="20" fill="#FFFFFF"/>
+<path d="M178,465 L200,448 L222,465 Z" fill="#FFFFFF"/>
+</g>
+<g>
+<circle cx="470" cy="370" r="16" fill="#D20064"/>
+<path d="M470,386 L482,410 L458,410 Z" fill="#D20064"/>
+<circle cx="470" cy="370" r="6" fill="#004388"/>
+</g>
+<g>
+<rect x="454" y="420" width="32" height="20" fill="#FFFFFF"/>
+<path d="M448,420 L470,403 L492,420 Z" fill="#FFFFFF"/>
+</g>
+</svg>
