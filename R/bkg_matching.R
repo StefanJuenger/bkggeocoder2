@@ -255,6 +255,41 @@ bkg_match_addresses_ddb <- function(
   zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
   place <- ifelse(length(cols) == 4, cols[4], cols[3])
   
+  # Nothing to match (e.g. every address failed place-matching already) --
+  # bail out before touching DuckDB. Without this guard, building an empty
+  # parquet path list below would produce invalid SQL, and several paste0()
+  # calls further down would silently misbehave on zero-row input (paste0()
+  # treats a zero-length vector as a single "" element when recycling
+  # unless recycle0 = TRUE, so the result would end up length 1, not 0).
+  if (!nrow(matched_data)) {
+    empty <- data.frame(
+      .iid = matched_data$.iid,
+      score = numeric(0),
+      place_score = numeric(0),
+      street_score = numeric(0),
+      house_number_score = numeric(0),
+      whole_address.x = character(0),
+      whole_address.y = character(0),
+      whole_address_add = character(0),
+      RS = character(0),
+      x = character(0),
+      y = character(0),
+      check.names = FALSE
+    )
+    empty[[paste0(street, ".x")]] <- character(0)
+    empty[[paste0(street, ".y")]] <- character(0)
+    if (house_number != "") {
+      empty[[paste0(house_number, ".x")]] <- character(0)
+      empty[[paste0(house_number, ".y")]] <- character(0)
+    }
+    empty[[paste0(zip_code, ".x")]] <- character(0)
+    empty[[paste0(zip_code, ".y")]] <- character(0)
+    empty[[paste0(place, ".x")]] <- character(0)
+    empty[[paste0(place, ".y")]] <- character(0)
+    
+    return(empty)
+  }
+  
   if (isTRUE(verbose)) {
     cli::cli_progress_step(
       msg = "Preparing data for address matching...",
@@ -281,8 +316,9 @@ bkg_match_addresses_ddb <- function(
   matched_data$whole_address_in <- trimws(paste0(
     matched_data$street_clean,
     if (house_number %in% colnames(matched_data)) {
-      paste0(" ", matched_data[[house_number]])
-    }
+      paste0(" ", matched_data[[house_number]], recycle0 = TRUE)
+    },
+    recycle0 = TRUE
   ))
   
   # House number as character
@@ -539,7 +575,8 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     address_input = paste(
       messy_data$whole_address_input,
       messy_data[[paste0(zip_code, "_input")]],
-      messy_data[[paste0(place, "_input")]]
+      messy_data[[paste0(place, "_input")]],
+      recycle0 = TRUE
     ),
     street_input = messy_data$street_input,
     house_number_input = messy_data$house_number_input,
@@ -551,7 +588,10 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     zip_code_output = messy_data$zip_code_output,
     place_output = messy_data$place_output,
     RS  = messy_data$RS,
-    AGS = paste0(substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12)),
+    AGS = paste0(
+      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12),
+      recycle0 = TRUE
+    ),
     VWG = substr(messy_data$RS, 1, 9),
     KRS = substr(messy_data$RS, 1, 5),
     RBZ = substr(messy_data$RS, 1, 3),
@@ -563,12 +603,25 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     source = "\u00a9 GeoBasis-DE / BKG, Deutsche Post Direkt GmbH, Statistisches Bundesamt, Wiesbaden (2025)"
   )
   
-  clean_data <- sf::st_as_sf(
-    clean_data,
-    coords = c("x", "y"),
-    crs = 25832,
-    remove = TRUE,
-    na.fail = FALSE
+  # sf::st_as_sf() internally computes min()/max() over the coordinate
+  # columns for the bounding box, which triggers R's harmless "no
+  # non-missing arguments to min/max" warning when clean_data has zero rows
+  # (e.g. every address failed to place-match). The result is still a
+  # correct, valid empty sf object -- only this specific, known warning is
+  # suppressed, not warnings in general.
+  clean_data <- withCallingHandlers(
+    sf::st_as_sf(
+      clean_data,
+      coords = c("x", "y"),
+      crs = 25832,
+      remove = TRUE,
+      na.fail = FALSE
+    ),
+    warning = function(w) {
+      if (grepl("no non-missing arguments to (min|max)", conditionMessage(w))) {
+        invokeRestart("muffleWarning")
+      }
+    }
   )
   
   if ("inspire" %in% identifiers) {

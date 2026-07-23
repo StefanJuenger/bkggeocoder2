@@ -132,8 +132,13 @@ spt_create_inspire_ids <- function(
   inspire_ids <- sprintf(
     "%sN%sE%s",
     type,
-    substr(as.character(coordinate_pairs$Y), 1, 4 + (type == "100m")),
-    substr(as.character(coordinate_pairs$X), 1, 4 + (type == "100m"))
+    # sprintf("%.0f", ...) rather than as.character(): the latter can
+    # switch to scientific notation for round numbers (e.g. 3000000 ->
+    # "3e+06") depending on getOption("scipen"), which would silently
+    # corrupt the grid id. sprintf("%.0f", ...) always renders a fixed,
+    # non-scientific integer string regardless of magnitude or options.
+    substr(sprintf("%.0f", coordinate_pairs$Y), 1, 4 + (type == "100m")),
+    substr(sprintf("%.0f", coordinate_pairs$X), 1, 4 + (type == "100m"))
   )
   
   if (isTRUE(combine)) {
