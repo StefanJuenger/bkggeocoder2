@@ -1,46 +1,36 @@
 Package: bkggeocoder2
-Type: Package
-Title: Geocoding based on the data of the Federal Agency of 
-    Cartography and Geodesy (BKG)
-Version: 0.1.1
-Date: 2022-03-11
+Title: Offline Geocoding of German Addresses Using Local BKG Data
+Version: 0.1.0
 Authors@R: c(
-    person("Stefan", "Jünger", email = "stefan.juenger@gesis.org", role = c("cre", "aut")),
-    person("Jonas", "Lieth", email = "jonas.lieth@gesis.org", role = "aut")
+    person("Your", "Name", email = "you@example.org", role = c("aut", "cre"))
   )
-Description: R Package for geocoding based on the data of the Federal Agency of 
-    Cartography and Geodesy (BKG) in Germany. The functions of this package
-    require access to the BKG address datasets (gdz_geokodierung_* or
-    wfs_geokodierung_*).
-License: CC BY 4.0
-URL: https://github.com/StefanJuenger/bkggeocoder2
-BugReports: https://github.com/StefanJuenger/bkggeocoder2/issues
+Description: Offline geocoding and reverse geocoding of German addresses
+    using record linkage against a local Parquet/DuckDB database built from
+    address data provided by the Bundesamt fuer Kartographie und Geodaesie
+    (BKG). This package is a ground-up rewrite of 'bkggeocoder', focused
+    exclusively on the local, offline geocoding workflow: no server
+    connection, credentials, or data decryption are required. The local
+    address database can be built and refreshed using bkg_build_database()
+    and bkg_update_database().
+License: MIT + file LICENSE
 Encoding: UTF-8
-LazyData: true
-Depends: 
-    R (>= 2.10)
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
 Imports:
-    utils,
-    stats,
-    graphics,
-    openssl,
     cli,
-    DBI,
-    duckdb,
-    dplyr,
-    reclin2,
-    stringdist,
-    stringi,
-    sf,
-    tibble,
-    httr2,
     data.table,
-    xml2
+    DBI,
+    dplyr,
+    duckdb,
+    glue,
+    jsonlite,
+    sf,
+    stringi,
+    tibble,
+    tools
 Suggests:
+    arrow,
     openxlsx,
     readr,
-    rmarkdown,
-    knitr,
-    rnaturalearth
-RoxygenNote: 7.3.3
-VignetteBuilder: knitr
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
