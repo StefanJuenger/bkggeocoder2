@@ -36,6 +36,63 @@ nk_plain <- function(expr) {
 # Shared R-side input normalization helpers
 # -----------------------------------------------------------------------------
 
+#' Strip formatting noise from a raw house number input
+#'
+#' @description Removes whitespace and periods that sometimes end up in
+#' user-entered house numbers (e.g. "10 a", "10."), which would otherwise
+#' lower the match score for no good reason -- unlike
+#' \code{\link{collapse_house_number_range}}, this loses no real
+#' information, so its result is used both for matching AND as the
+#' displayed input value.
+#'
+#' @param x \code{[character]}
+#'
+#' @returns \code{[character]}
+#'
+#' @noRd
+clean_house_number_input <- function(x) {
+  gsub("[[:space:].]", "", x)
+}
+
+#' Strip a "Ortsteil" (OT) suffix from a raw place input
+#'
+#' @description Some address data sets append the district/sub-locality as
+#' a suffix to the place name (e.g. "Musterstadt OT Nebendorf" or
+#' "Musterstadt (OT Nebendorf)"), which is noise for place matching against
+#' the official place name. This loses no information that
+#' \code{\link{bkg_geocode_offline}} otherwise uses, so its result is used
+#' both for matching AND as the displayed input value.
+#'
+#' @param x \code{[character]}
+#'
+#' @returns \code{[character]}
+#'
+#' @noRd
+strip_place_suffix <- function(x) {
+  x <- gsub(" \\(OT.*", "", x)
+  x <- gsub(" OT.*", "", x)
+  x
+}
+
+#' Expand abbreviated "str"/"str." to "straße"
+#'
+#' @description Handles both "Hauptstr. 5" (abbreviation followed by
+#' whitespace) and "Hauptstr"/"Hauptstr." (abbreviation at the very end of
+#' the string, e.g. when street and house number are given in separate
+#' columns). Old spellings ("strasse"/"Strasse") don't need separate
+#' handling here: \code{nk()} further downstream already treats "ß" and
+#' "ss" as equivalent for comparison, so both spellings compare equally
+#' without any extra normalization at this stage.
+#'
+#' @param x \code{[character]}
+#'
+#' @returns \code{[character]}
+#'
+#' @noRd
+expand_street_abbreviation <- function(x) {
+  gsub("str\\.?(?=$|\\s)", "straße", x, ignore.case = TRUE, perl = TRUE)
+}
+
 #' Collapse a house number range down to its first number
 #'
 #' @description House number ranges (e.g. "13-15") don't exist as a single
@@ -102,6 +159,11 @@ bkg_match_places_ddb <- function(
     zip <- as.character(zip)
     if (nchar(zip) == 4) paste0("0", zip) else zip
   }, FUN.VALUE = character(1))
+  
+  # Strip "Ortsteil" (OT) suffixes into a separate matching key -- the
+  # original place column (used for both matching's zip join key context
+  # and, further downstream, the displayed input value) is left untouched.
+  .data$place_match_key <- strip_place_suffix(.data[[place]])
   
   if (isTRUE(verbose)) {
     cli::cli_inform(
@@ -179,7 +241,7 @@ bkg_match_places_ddb <- function(
   ",
                  nk_plain("concat(place, ' ', COALESCE(place_add, ''))"),
                  DBI::dbQuoteString(con, zip_places_path),
-                 nk_plain(sprintf('"%s"', place)),
+                 nk_plain("place_match_key"),
                  input_tbl,
                  zip_code,
                  zip_code
@@ -299,18 +361,20 @@ bkg_match_addresses_ddb <- function(
   }
   
   # Prepare input data in R ----
-  # Fix Mannheim square addresses
-  matched_data[, street] <- gsub(
+  # Preserve the raw street text for display; everything below (Mannheim
+  # square address fix, abbreviation expansion) is for MATCHING purposes
+  # only via street_clean, and never shown to the user.
+  matched_data$street_raw <- matched_data[[street]]
+  
+  # Fix Mannheim square addresses (matching-key only)
+  street_for_matching <- gsub(
     "^([A-Z])([1-9])$", "\\1 \\2",
-    matched_data[, street]
+    matched_data$street_raw
   )
   
-  # Expand Str. to Straße
-  matched_data$street_clean <- gsub(
-    "str[\\.]?\\s", "straße ",
-    matched_data[[street]],
-    ignore.case = TRUE
-  )
+  # Expand "str"/"str." to "straße" (matching-key only, see
+  # expand_street_abbreviation()).
+  matched_data$street_clean <- expand_street_abbreviation(street_for_matching)
   
   # Whole address for input
   matched_data$whole_address_in <- trimws(paste0(
@@ -321,7 +385,9 @@ bkg_match_addresses_ddb <- function(
     recycle0 = TRUE
   ))
   
-  # House number as character
+  # House number as character, kept exactly as entered -- this is the
+  # displayed value (house_number_input). All cleaning for matching
+  # purposes (see below) only ever affects hn_input_key, never hn_input.
   if (house_number %in% colnames(matched_data)) {
     matched_data$hn_input <- as.character(matched_data[[house_number]])
   } else {
@@ -332,12 +398,16 @@ bkg_match_addresses_ddb <- function(
   # reference data -- only the individual house numbers "13", "14", "15" do.
   # For MATCHING purposes only, collapse such a range down to its first
   # number (mirrors how ranges were always resolved to their first number
-  # previously). The original, unmodified input (hn_input) is still used for
-  # the displayed output and is unaffected by this. Comparing the full range
-  # string via jaro_winkler instead can match an unrelated house number that
-  # happens to share many characters with the range string (e.g. "13-15" is
-  # closer to "135" than to "13" in pure character-overlap terms).
-  matched_data$hn_input_key <- collapse_house_number_range(matched_data$hn_input)
+  # previously). hn_input_key additionally strips whitespace/periods (see
+  # clean_house_number_input()) before collapsing the range -- both steps
+  # only ever affect the matching key, never the displayed hn_input.
+  # Comparing the full, uncleaned range string via jaro_winkler instead can
+  # match an unrelated house number that happens to share many characters
+  # with the range string (e.g. "13-15" is closer to "135" than to "13" in
+  # pure character-overlap terms).
+  matched_data$hn_input_key <- collapse_house_number_range(
+    clean_house_number_input(matched_data$hn_input)
+  )
   
   # Build parquet paths for relevant places only ----
   relevant_slugs <- unique(matched_data$place_slug)
@@ -385,7 +455,7 @@ bkg_match_addresses_ddb <- function(
     street_match AS (
       SELECT
         input.\".iid\",
-        input.street_clean,
+        input.street_raw,
         input.hn_norm AS input_hn_norm,
         input.hn_input,
         input.hn_input_key,
@@ -409,7 +479,7 @@ bkg_match_addresses_ddb <- function(
     hn_match AS (
       SELECT
         sm.\".iid\",
-        sm.street_clean,
+        sm.street_raw,
         sm.hn_input,
         sm.hn_input_key,
         sm.whole_address_in,
@@ -500,7 +570,7 @@ bkg_match_addresses_ddb <- function(
     check.names = FALSE
   )
   
-  result[[paste0(street, ".x")]] <- geocoded$street_clean
+  result[[paste0(street, ".x")]] <- geocoded$street_raw
   result[[paste0(street, ".y")]] <- geocoded$street_out
   if (house_number != "") {
     result[[paste0(house_number, ".x")]] <- geocoded$hn_input
@@ -543,6 +613,8 @@ bkg_match_addresses_ddb <- function(
 # -----------------------------------------------------------------------------
 
 bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) {
+  street <- cols[1]
+  house_number <- ifelse(length(cols) == 4, cols[2], "")
   zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
   place <- ifelse(length(cols) == 4, cols[4], cols[3])
   
@@ -578,15 +650,19 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
       messy_data[[paste0(place, "_input")]],
       recycle0 = TRUE
     ),
-    street_input = messy_data$street_input,
-    house_number_input = messy_data$house_number_input,
-    zip_code_input = messy_data$zip_code_input,
-    place_input = messy_data$place_input,
+    street_input = messy_data[[paste0(street, "_input")]],
+    house_number_input = if (house_number != "") {
+      messy_data[[paste0(house_number, "_input")]]
+    },
+    zip_code_input = messy_data[[paste0(zip_code, "_input")]],
+    place_input = messy_data[[paste0(place, "_input")]],
     address_output = messy_data$whole_address_add,
-    street_output = messy_data$street_output,
-    house_number_output = messy_data$house_number_output,
-    zip_code_output = messy_data$zip_code_output,
-    place_output = messy_data$place_output,
+    street_output = messy_data[[paste0(street, "_output")]],
+    house_number_output = if (house_number != "") {
+      messy_data[[paste0(house_number, "_output")]]
+    },
+    zip_code_output = messy_data[[paste0(zip_code, "_output")]],
+    place_output = messy_data[[paste0(place, "_output")]],
     RS  = messy_data$RS,
     AGS = paste0(
       substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12),
