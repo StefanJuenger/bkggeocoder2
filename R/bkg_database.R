@@ -527,8 +527,8 @@ bkg_build_database_impl <- function(
 #' @param memory_limit \code{[character/NULL]}
 #'
 #' Caps how much memory DuckDB is allowed to use while building the
-#' database (e.g. \code{"4GB"}); passed through to
-#' \code{\link{bkg_build_database_impl}}. Defaults to \code{NULL} (DuckDB's
+#' database (e.g. \code{"4GB"}); passed through to the internal build
+#' worker. Defaults to \code{NULL} (DuckDB's
 #' own, uncapped default). Note that a cap is not a guaranteed safety net
 #' against out-of-memory errors for a single large operation (e.g. one big
 #' federal state) -- if you hit one, raising this (or leaving it at
@@ -536,8 +536,8 @@ bkg_build_database_impl <- function(
 #'
 #' @param threads \code{[integer/NULL]}
 #'
-#' Caps the number of threads DuckDB uses; passed through to
-#' \code{\link{bkg_build_database_impl}}. Fewer threads lower peak memory
+#' Caps the number of threads DuckDB uses; passed through to the internal
+#' build worker. Fewer threads lower peak memory
 #' somewhat but make the build slower. Set to \code{NULL} (the default)
 #' to leave DuckDB's own default in place.
 #'
