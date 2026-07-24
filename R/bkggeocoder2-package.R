@@ -20,7 +20,8 @@ utils::globalVariables(c(
   ".", ".SD", "RS", "V3", "V11", "V12", "V13", "V14", "V15", "V16", "V19", "V20",
   "house_number", "house_number_add", "house_number_full",
   "place", "place_add", "place_slug", "street",
-  "whole_address", "whole_address_add", "zip_code"
+  "whole_address", "whole_address_add", "zip_code",
+  "street_raw", "place_add_raw", "i.street", "i.place_add", "i.place_slug"
 ))
 
 
