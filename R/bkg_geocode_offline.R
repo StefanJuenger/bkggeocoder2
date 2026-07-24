@@ -124,7 +124,7 @@ bkg_geocode_offline <- function(
     cli::cli_abort("{.var cols} must be of length 3 or 4.")
   }
   
-  version_file <- file.path(db_path, "version.json")
+  version_file <- file.path(db_path, "version.dcf")
   
   if (!dir.exists(db_path) || !file.exists(version_file)) {
     cli::cli_abort(c(
