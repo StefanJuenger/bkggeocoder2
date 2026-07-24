@@ -5,9 +5,9 @@
 # don't need any real address data -- they only exercise the surrounding
 # decision logic (does a rebuild happen or not, is a backup made or not).
 
-fake_build <- function(address_data_path, db_path) {
+fake_build <- function(address_data_path, db_path, memory_limit = NULL, threads = NULL) {
   dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
-  jsonlite::write_json(
+  write_version_metadata(
     list(
       version = format(Sys.Date(), "%Y-%m-%d"),
       created = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
@@ -15,8 +15,7 @@ fake_build <- function(address_data_path, db_path) {
       n_places = 1L,
       n_dropped_katasterintern = 0L
     ),
-    file.path(db_path, "version.json"),
-    auto_unbox = TRUE
+    file.path(db_path, "version.dcf")
   )
 }
 
@@ -34,7 +33,7 @@ test_that("bkg_update_database() performs an initial build when no database exis
   )
   
   expect_true(result)
-  expect_true(file.exists(file.path(db_dir, "version.json")))
+  expect_true(file.exists(file.path(db_dir, "version.dcf")))
 })
 
 test_that("bkg_update_database() skips rebuild when not stale", {
@@ -139,7 +138,7 @@ test_that("bkg_update_database() creates a dated backup when backup = TRUE", {
   
   backup_dir <- paste0(db_dir, "_backup_", format(Sys.Date(), "%Y%m%d"))
   expect_true(dir.exists(backup_dir))
-  expect_true(file.exists(file.path(backup_dir, "version.json")))
+  expect_true(file.exists(file.path(backup_dir, "version.dcf")))
 })
 
 test_that("bkg_update_database() aborts if address_data_path does not exist", {
@@ -173,10 +172,38 @@ test_that("building the database drops katasterinterne house numbers", {
   
   bkg_build_database_impl(fixture_dir, db_dir)
   
-  version <- jsonlite::read_json(file.path(db_dir, "version.json"))
+  version <- read_version_metadata(file.path(db_dir, "version.dcf"))
   
   expect_equal(version$n_addresses, 8)
   expect_equal(version$n_dropped_katasterintern, 1)
+})
+
+test_that("bkg_build_database_impl() accepts a memory_limit setting", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  expect_no_error(
+    bkg_build_database_impl(fixture_dir, db_dir, memory_limit = "512MB")
+  )
+  expect_true(file.exists(file.path(db_dir, "version.dcf")))
+})
+
+test_that("bkg_build_database_impl() works with memory_limit = NULL (no cap)", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  expect_no_error(
+    bkg_build_database_impl(fixture_dir, db_dir, memory_limit = NULL)
+  )
+})
+
+test_that("bkg_build_database_impl() accepts a threads setting", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  expect_no_error(
+    bkg_build_database_impl(fixture_dir, db_dir, threads = 1L)
+  )
 })
 
 test_that("offline geocoding resolves house number affixes and ranges correctly", {

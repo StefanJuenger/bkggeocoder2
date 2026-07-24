@@ -54,7 +54,7 @@ test_that("bkg_geocode_offline() aborts with a helpful message when no local dat
 })
 
 test_that("bkg_geocode_offline() aborts when only an empty directory exists at db_path", {
-  # dir.exists() is TRUE but version.json is missing -- a different branch
+  # dir.exists() is TRUE but version.dcf is missing -- a different branch
   # of the same guard condition than the fully-missing-directory case above.
   db_dir <- withr::local_tempdir()
   expect_error(

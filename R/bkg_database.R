@@ -56,6 +56,42 @@ bkg_db_path <- function() {
   tools::R_user_dir("bkggeocoder2", which = "data")
 }
 
+# -----------------------------------------------------------------------------
+# Version metadata (read/write)
+# -----------------------------------------------------------------------------
+# Stored as DCF ("Debian Control File", e.g. https://www.debian.org/doc/debian-policy/ch-controlfields.html)
+# -- the same key: value text format R itself uses for the DESCRIPTION file
+# -- rather than JSON, so no dependency (not even a Suggests one) is needed
+# just to persist half a dozen small metadata fields. read.dcf()/write.dcf()
+# are part of base R.
+
+#' @noRd
+write_version_metadata <- function(version, path) {
+  write.dcf(
+    data.frame(
+      version = version$version,
+      created = version$created,
+      n_addresses = version$n_addresses,
+      n_places = version$n_places,
+      n_dropped_katasterintern = version$n_dropped_katasterintern,
+      stringsAsFactors = FALSE
+    ),
+    file = path
+  )
+}
+
+#' @noRd
+read_version_metadata <- function(path) {
+  raw <- as.data.frame(read.dcf(path, all = TRUE), stringsAsFactors = FALSE)
+  list(
+    version = raw$version,
+    created = raw$created,
+    n_addresses = as.integer(raw$n_addresses),
+    n_places = as.integer(raw$n_places),
+    n_dropped_katasterintern = as.integer(raw$n_dropped_katasterintern)
+  )
+}
+
 
 
 
@@ -87,6 +123,27 @@ bkg_db_path <- function() {
 #' \code{ga/} containing address data partitioned by place and
 #' \code{zip_places/} containing a lookup table of places and zip codes.
 #'
+#' @param memory_limit \code{[character/NULL]}
+#'
+#' Caps how much memory DuckDB is allowed to use during the build (e.g.
+#' \code{"4GB"}), set via \code{PRAGMA memory_limit}. Without a cap
+#' (the default, \code{NULL}), DuckDB uses as much memory as it deems
+#' useful for a given operation. Note that setting a cap is not a
+#' guaranteed safety net: for a single large operation (e.g. partitioning
+#' one big federal state's data by place), DuckDB may still raise an
+#' out-of-memory error rather than spilling to disk, if the cap is too low
+#' for that operation's minimum working set. If you hit that, raising
+#' \code{memory_limit} (or leaving it at \code{NULL}) is more reliable than
+#' lowering it further.
+#'
+#' @param threads \code{[integer/NULL]}
+#'
+#' Caps the number of threads DuckDB uses, set via \code{PRAGMA threads}.
+#' Fewer threads lower peak memory somewhat (each parallel worker needs its
+#' own working memory), at the cost of a slower build. Set to \code{NULL}
+#' (the default) to leave DuckDB's own default (typically one thread per
+#' CPU core) in place.
+#'
 #' @details The function processes address data for whichever state files
 #' are present in \code{address_data_path} (normally all 16 German federal
 #' states, but a subset works too, e.g. for testing). For each state file,
@@ -107,7 +164,7 @@ bkg_db_path <- function() {
 #' The output is written as a Snappy-compressed Parquet dataset partitioned
 #' by \code{place_slug} using DuckDB. A separate Parquet lookup table
 #' mapping places and zip codes is also created, as well as a
-#' \code{version.json} metadata file (which records how many records were
+#' \code{version.dcf} metadata file (which records how many records were
 #' dropped for having a katasterinterne house number).
 #'
 #' @returns Called for its side effect (writing Parquet files). Returns
@@ -118,7 +175,12 @@ bkg_db_path <- function() {
 #' @encoding UTF-8
 #' @md
 #' @noRd
-bkg_build_database_impl <- function(address_data_path, db_path) {
+bkg_build_database_impl <- function(
+    address_data_path,
+    db_path,
+    memory_limit = NULL,
+    threads = NULL
+) {
   
   # Auto-discover which state files are actually present, instead of
   # hardcoding all 16 official state codes. This means the function works
@@ -161,23 +223,28 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
   
-  DBI::dbExecute(con, "
-    CREATE TABLE bkg_ga (
-      street VARCHAR,
-      house_number VARCHAR,
-      house_number_add VARCHAR,
-      house_number_full VARCHAR,
-      zip_code VARCHAR,
-      place VARCHAR,
-      place_add VARCHAR,
-      RS VARCHAR,
-      x VARCHAR,
-      y VARCHAR,
-      whole_address VARCHAR,
-      whole_address_add VARCHAR,
-      place_slug VARCHAR
-    )
-  ")
+  if (!is.null(memory_limit)) {
+    DBI::dbExecute(con, sprintf("PRAGMA memory_limit='%s'", memory_limit))
+  }
+  
+  if (!is.null(threads)) {
+    DBI::dbExecute(con, sprintf("PRAGMA threads=%d", threads))
+  }
+  
+  # We never rely on the physical row order within a partition (reads
+  # further downstream always sort/rank explicitly via ORDER BY/QUALIFY),
+  # so there's nothing to lose by not preserving insertion order -- and it
+  # meaningfully lowers peak memory for the partitioned COPY below, which
+  # otherwise has to buffer more to guarantee an order nobody needs.
+  DBI::dbExecute(con, "PRAGMA preserve_insertion_order=false")
+  
+  # Written to directly, per state, inside the loop below -- see the
+  # comment above the loop for why.
+  ga_path <- normalizePath(
+    file.path(db_path, "ga"),
+    winslash = "/",
+    mustWork = FALSE
+  )
   
   pb <- cli::cli_progress_bar(
     total = length(laender_names),
@@ -185,18 +252,40 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
   )
   
   n_dropped <- 0L
+  n_addresses <- 0L
+  zip_places_list <- vector("list", length(laender_names))
   
+  # Each state is written directly to its own partitioned Parquet slice
+  # right after cleaning, instead of accumulating all 16 states into one
+  # big in-memory table and doing a single, monolithic COPY/partition step
+  # at the very end. Profiling showed that final COPY dominating total
+  # build time (~84%, after the place_slug fix below removed the previous
+  # bottleneck): partitioning the full multi-state dataset in one shot
+  # means shuffling/sorting tens of millions of rows at once, whereas doing
+  # it once per state (a much smaller chunk each time) is both lighter on
+  # peak memory and substantially faster in aggregate.
   for (idx in seq_along(laender_names)) {
     
     cli::cli_progress_update(id = pb, set = idx)
     
     i <- laender_names[[idx]]
     
+    # Only parse the columns actually used below (roughly half of the raw
+    # file's 25 columns). select= must stay an unnamed position vector here
+    # -- a NAMED select vector means something different in data.table
+    # (column = target type), which conflicts with colClasses=. col.names=
+    # sets the friendly V<n> names explicitly instead, so all downstream
+    # V<n> references keep working unchanged regardless of fread's own
+    # positional-naming defaults.
+    selected_cols <- c(3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 19, 20)
+    
     tmp <- data.table::fread(
-      file.path(address_data_path, glue::glue("ga_{i}.csv")),
+      file.path(address_data_path, sprintf("ga_%s.csv", i)),
       colClasses = "character",
       encoding = "UTF-8",
-      showProgress = FALSE
+      showProgress = FALSE,
+      select = selected_cols,
+      col.names = paste0("V", selected_cols)
     )
     
     # Drop records with a "katasterinterne Hausnummer" (V3 == "C"), which is
@@ -219,19 +308,26 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
     tmp <- tmp[
       ,
       .(
-        street = gsub(" \\(.*\\)\\b", "", V15),
+        street_raw = V15,
         house_number = V11,
         house_number_add = tolower(V12),
         zip_code = V16,
         place = V20,
-        place_add = gsub("Ortsteil unbekannt", "", V19),
+        place_add_raw = V19,
         RS,
         x = gsub(",", ".", V13),
         y = gsub(",", ".", V14)
       )
     ]
     
-    tmp[
+    # street and place_add are cleaned via the same dedup-then-join pattern
+    # as place_slug above: both repeat heavily across rows (a street repeats
+    # once per house number on it, a place_add roughly as often as its
+    # place), so cleaning every distinct value once instead of re-running
+    # the same gsub()s on every row avoids redundant regex work.
+    street_lookup <- data.table::data.table(street_raw = unique(tmp$street_raw))
+    street_lookup[, street := gsub(" \\(.*\\)\\b", "", street_raw)]
+    street_lookup[
       ,
       street := gsub(
         "Str[.]$",
@@ -239,6 +335,15 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
         gsub("str[.]$", "stra\u00dfe", street)
       )
     ]
+    tmp[street_lookup, street := i.street, on = "street_raw"]
+    tmp[, street_raw := NULL]
+    
+    place_add_lookup <- data.table::data.table(
+      place_add_raw = unique(tmp$place_add_raw)
+    )
+    place_add_lookup[, place_add := gsub("Ortsteil unbekannt", "", place_add_raw)]
+    tmp[place_add_lookup, place_add := i.place_add, on = "place_add_raw"]
+    tmp[, place_add_raw := NULL]
     
     tmp[
       ,
@@ -267,16 +372,54 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
       )
     ]
     
-    tmp[
-      ,
-      place_slug := normalize_file(place)
-    ]
+    # normalize_file() involves an expensive transliteration
+    # (stringi::stri_trans_general()) that profiling showed dominates the
+    # entire build (~42% of total time) when applied per row -- Germany has
+    # ~11,000 distinct places but millions of address rows, so the same
+    # place name was being transliterated tens of thousands of times over.
+    # Compute it once per distinct place instead and join the result back.
+    place_lookup <- data.table::data.table(place = unique(tmp$place))
+    place_lookup[, place_slug := normalize_file(place)]
+    tmp[place_lookup, place_slug := i.place_slug, on = "place"]
     
-    DBI::dbAppendTable(
-      con,
-      "bkg_ga",
-      tmp
+    n_addresses <- n_addresses + nrow(tmp)
+    
+    # Collected once per state (a tiny slice of the full data) instead of
+    # querying it back out of one big combined table at the end.
+    zip_places_list[[idx]] <- unique(
+      tmp[, .(place, place_add, zip_code, place_slug)]
     )
+    
+    # Reverted from arrow::write_dataset(): profiling showed it getting
+    # progressively (and eventually unusably) slower across states, almost
+    # certainly because it re-scans/re-opens the existing target dataset on
+    # every call -- costly once thousands of place_slug partition folders
+    # have already accumulated from earlier states. DuckDB's per-state
+    # register+COPY doesn't have this problem, since each call is scoped to
+    # a fresh, unrelated temporary view rather than the growing dataset on
+    # disk.
+    view_name <- paste0("tmp_state_", sample.int(1e9, 1))
+    duckdb::duckdb_register(con, view_name, tmp)
+    
+    DBI::dbExecute(
+      con,
+      sprintf(
+        "
+        COPY (SELECT * FROM %s)
+        TO '%s'
+        (
+          FORMAT PARQUET,
+          PARTITION_BY(place_slug),
+          COMPRESSION snappy,
+          OVERWRITE_OR_IGNORE
+        )
+        ",
+        view_name,
+        ga_path
+      )
+    )
+    
+    duckdb::duckdb_unregister(con, view_name)
     
     rm(tmp)
     gc()
@@ -292,30 +435,6 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
   }
   
   # --------------------------------------------------
-  # Partitionierte Parquet-Dateien
-  # --------------------------------------------------
-  
-  cli::cli_alert_info("Writing partitioned dataset")
-  
-  DBI::dbExecute(
-    con,
-    glue::glue("
-      COPY bkg_ga
-      TO '{normalizePath(
-        file.path(db_path, 'ga'),
-        winslash = '/',
-        mustWork = FALSE
-      )}'
-      (
-        FORMAT PARQUET,
-        PARTITION_BY(place_slug),
-        COMPRESSION snappy,
-        OVERWRITE_OR_IGNORE
-      )
-    ")
-  )
-  
-  # --------------------------------------------------
   # ZIP-Lookup
   # --------------------------------------------------
   
@@ -327,18 +446,8 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
     showWarnings = FALSE
   )
   
-  ga_zip_places <- DBI::dbGetQuery(
-    con,
-    "
-    SELECT DISTINCT
-      place,
-      place_add,
-      zip_code,
-      place_slug
-    FROM bkg_ga
-    ORDER BY place
-    "
-  )
+  ga_zip_places <- data.table::rbindlist(zip_places_list)
+  data.table::setorder(ga_zip_places, place)
   
   arrow::write_parquet(
     ga_zip_places,
@@ -359,25 +468,14 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
   version <- list(
     version = format(Sys.Date(), "%Y-%m-%d"),
     created = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-    n_addresses = DBI::dbGetQuery(
-      con,
-      "SELECT COUNT(*) AS n FROM bkg_ga"
-    )$n,
-    n_places = DBI::dbGetQuery(
-      con,
-      "SELECT COUNT(DISTINCT place_slug) AS n FROM bkg_ga"
-    )$n,
+    n_addresses = n_addresses,
+    n_places = data.table::uniqueN(ga_zip_places$place_slug),
     n_dropped_katasterintern = n_dropped
   )
   
-  jsonlite::write_json(
+  write_version_metadata(
     version,
-    file.path(
-      db_path,
-      "version.json"
-    ),
-    pretty = TRUE,
-    auto_unbox = TRUE
+    file.path(db_path, "version.dcf")
   )
   
   cli::cli_alert_success("Done")
@@ -426,6 +524,23 @@ bkg_build_database_impl <- function(address_data_path, db_path) {
 #' space it uses; set to \code{TRUE} if you want a safety copy before a
 #' refresh.
 #'
+#' @param memory_limit \code{[character/NULL]}
+#'
+#' Caps how much memory DuckDB is allowed to use while building the
+#' database (e.g. \code{"4GB"}); passed through to
+#' \code{\link{bkg_build_database_impl}}. Defaults to \code{NULL} (DuckDB's
+#' own, uncapped default). Note that a cap is not a guaranteed safety net
+#' against out-of-memory errors for a single large operation (e.g. one big
+#' federal state) -- if you hit one, raising this (or leaving it at
+#' \code{NULL}) tends to be more reliable than lowering it further.
+#'
+#' @param threads \code{[integer/NULL]}
+#'
+#' Caps the number of threads DuckDB uses; passed through to
+#' \code{\link{bkg_build_database_impl}}. Fewer threads lower peak memory
+#' somewhat but make the build slower. Set to \code{NULL} (the default)
+#' to leave DuckDB's own default in place.
+#'
 #' @returns \code{TRUE} if the database was (re-)built, \code{FALSE} if it
 #' was already up to date (invisibly).
 #'
@@ -450,7 +565,9 @@ bkg_update_database <- function(
     address_data_path,
     db_path = bkg_db_path(),
     force = FALSE,
-    backup = FALSE
+    backup = FALSE,
+    memory_limit = NULL,
+    threads = NULL
 ) {
   check_lgl(force)
   check_lgl(backup)
@@ -459,9 +576,9 @@ bkg_update_database <- function(
     cli::cli_abort("{.path {address_data_path}} does not exist.")
   }
   
-  version_file <- file.path(db_path, "version.json")
+  version_file <- file.path(db_path, "version.dcf")
   old_version <- if (file.exists(version_file)) {
-    jsonlite::read_json(version_file)
+    read_version_metadata(version_file)
   } else NULL
   
   is_initial_build <- is.null(old_version)
@@ -524,9 +641,12 @@ bkg_update_database <- function(
   }
   
   dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
-  bkg_build_database_impl(address_data_path, db_path)
+  bkg_build_database_impl(
+    address_data_path, db_path,
+    memory_limit = memory_limit, threads = threads
+  )
   
-  new_version <- jsonlite::read_json(version_file)
+  new_version <- read_version_metadata(version_file)
   
   cli::cli_alert_success(paste0(
     "Database ",

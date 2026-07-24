@@ -20,18 +20,16 @@ RoxygenNote: 7.3.3
 Depends:
     R (>= 4.1.0)
 Imports:
+    arrow,
     cli,
     data.table,
     DBI,
     duckdb,
-    glue,
-    jsonlite,
     sf,
     stringi,
     tibble,
     tools
 Suggests:
-    arrow,
     openxlsx,
     readr,
     testthat (>= 3.0.0),
