@@ -9,7 +9,9 @@ bkg_update_database(
   address_data_path,
   db_path = bkg_db_path(),
   force = FALSE,
-  backup = FALSE
+  backup = FALSE,
+  memory_limit = NULL,
+  threads = NULL
 )
 }
 \arguments{
@@ -38,6 +40,23 @@ nothing to back up yet). Defaults to \code{FALSE}, since the local
 address database can be large and a backup temporarily doubles the disk
 space it uses; set to \code{TRUE} if you want a safety copy before a
 refresh.}
+
+\item{memory_limit}{\code{[character/NULL]}
+
+Caps how much memory DuckDB is allowed to use while building the
+database (e.g. \code{"4GB"}); passed through to
+\code{\link{bkg_build_database_impl}}. Defaults to \code{NULL} (DuckDB's
+own, uncapped default). Note that a cap is not a guaranteed safety net
+against out-of-memory errors for a single large operation (e.g. one big
+federal state) -- if you hit one, raising this (or leaving it at
+\code{NULL}) tends to be more reliable than lowering it further.}
+
+\item{threads}{\code{[integer/NULL]}
+
+Caps the number of threads DuckDB uses; passed through to
+\code{\link{bkg_build_database_impl}}. Fewer threads lower peak memory
+somewhat but make the build slower. Set to \code{NULL} (the default)
+to leave DuckDB's own default in place.}
 }
 \value{
 \code{TRUE} if the database was (re-)built, \code{FALSE} if it
