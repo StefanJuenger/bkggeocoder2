@@ -222,7 +222,7 @@ bkg_match_places_ddb <- function(
       SELECT
         *,
         %s AS place_simple,
-        substr(\"%s\", 1, 3) AS zip_block
+        substr(zip_match_key, 1, 3) AS zip_block
       FROM %s
     ),
     scored AS (
@@ -235,13 +235,15 @@ bkg_match_places_ddb <- function(
         jaro_winkler_similarity(input.place_simple, ref.place_simple) AS place_score,
         -- PLZ similarity: fuzzy instead of exact, so a single-digit typo
         -- (e.g. a transposition) is penalized rather than filtered out
-        -- entirely
-        jaro_winkler_similarity(input.\"%s\", ref.zip_code) AS zip_score,
+        -- entirely. Uses zip_match_key (post input fixes), not the raw
+        -- zip_code column, so a registered zip_code fix actually affects
+        -- matching.
+        jaro_winkler_similarity(input.zip_match_key, ref.zip_code) AS zip_score,
         -- kombinierter Score (multiplikativ stabiler)
         (
           jaro_winkler_similarity(input.place_simple, ref.place_simple)
           *
-          jaro_winkler_similarity(input.\"%s\", ref.zip_code)
+          jaro_winkler_similarity(input.zip_match_key, ref.zip_code)
         ) AS total_score
       FROM input_norm input
       LEFT JOIN ref
@@ -251,16 +253,30 @@ bkg_match_places_ddb <- function(
     FROM scored
     QUALIFY ROW_NUMBER() OVER (
       PARTITION BY \".iid\"
-      ORDER BY total_score DESC, place_matched
+      ORDER BY
+        -- An EXACT zip match (zip_score = 1.0, since jaro_winkler of
+        -- identical strings is exactly 1) with at least a plausible
+        -- place-name score always wins over ANY fuzzy (non-exact-zip)
+        -- candidate, regardless of how the raw multiplicative
+        -- total_score compares. Without this, jaro_winkler_similarity
+        -- between two zip codes that merely share the same 3-digit block
+        -- is already ~0.8-0.92 (barely below 1.0), which isn't enough of
+        -- a gap to reliably protect a correct-but-imperfectly-matched
+        -- place (e.g. one needing its Ortsteil suffix) against a
+        -- same-block, different-zip place that happens to string-match
+        -- the input slightly better. Fuzzy zip candidates only get to
+        -- compete at all when no exact-zip candidate clears this loose
+        -- 0.6 safety bar (i.e. an actual zip-code typo, not just an
+        -- imperfect place name).
+        (zip_score >= 0.999 AND place_score >= 0.6) DESC,
+        total_score DESC,
+        place_matched
     ) = 1
   ",
                  nk_plain("concat(place, ' ', COALESCE(place_add, ''))"),
                  DBI::dbQuoteString(con, zip_places_path),
                  nk_plain("place_match_key"),
-                 zip_code,
-                 input_tbl,
-                 zip_code,
-                 zip_code
+                 input_tbl
   )
   
   matched <- DBI::dbGetQuery(con, sql)
