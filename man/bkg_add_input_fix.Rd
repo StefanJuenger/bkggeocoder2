@@ -13,14 +13,18 @@ bkg_add_input_fix(
 )
 }
 \arguments{
-\item{street, house_number, zip_code, place}{\code{[function/list]}
+\item{street, house_number, zip_code, place}{\code{[function/formula/list]}
 
-Optional cleaning function(s) for the respective address component.
-Either a single function, or a list of functions to register several
-fixes for the same component at once -- they are then applied in the
-order given, after any already-registered fixes for that component.
-Only the components you actually want to add a fix for need to be
-supplied.}
+Optional cleaning fix(es) for the respective address component. Each
+fix can be written as a plain function (\code{function(x) ...}), a
+compact one-sided formula (\code{~ ...}, with \code{.x} or \code{x}
+standing in for the input), or built from the common patterns
+\code{\link{bkg_fix_remove}}, \code{\link{bkg_fix_replace}}, and
+\code{\link{bkg_fix_trim}} -- all forms can be mixed freely. Pass a
+single fix, or a list of several to register them all at once; they
+run in the order given, after any already-registered fixes for that
+component. Only the components you actually want to add a fix for need
+to be supplied.}
 }
 \value{
 \code{NULL}, invisibly. Called for its side effect of
@@ -29,28 +33,41 @@ registering the fix(es).
 \description{
 Registers one or more functions that clean a raw address
 component before matching, in addition to (after) the package's
-built-in fixes. Each function must take a character vector and return a
+built-in fixes. Each fix must take a character vector and return a
 character vector of the same length. Registered fixes apply to every
 subsequent call of \code{\link{bkg_geocode_offline}} in the current R
 session.
 }
 \examples{
 \dontrun{
-# Add a single custom street fix on top of the built-in one
+# Plain function
 bkg_add_input_fix(street = function(x) gsub("Str\\\\.?$", "stra\u00dfe", x))
 
-# Add several fixes for the same component at once, applied in order
+# Same thing, as a formula
+bkg_add_input_fix(street = ~ gsub("Str\\\\.?$", "stra\u00dfe", .x))
+
+# Same thing again, using the remove/replace helpers, plus removing
+# several other patterns in one call
 bkg_add_input_fix(
   place = list(
-    function(x) gsub("^Landkreis ", "", x),
-    function(x) gsub("\\\\s+", " ", trimws(x))
+    bkg_fix_remove(c("^Landkreis ", "^Kreis ")),
+    bkg_fix_trim()
   )
 )
 
-# Add fixes for two different components at once
+# Any of function, formula, or helper can be mixed in the same list
 bkg_add_input_fix(
-  place = function(x) gsub("^Landkreis ", "", x),
-  zip_code = function(x) trimws(x)
+  place = list(
+    bkg_fix_remove("^Landkreis "),
+    ~ gsub("\\\\s+", " ", .x),
+    function(x) trimws(x)
+  )
+)
+
+# Fixes for two different components at once
+bkg_add_input_fix(
+  place = bkg_fix_remove("^Landkreis "),
+  zip_code = bkg_fix_trim()
 )
 }
 
