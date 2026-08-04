@@ -94,6 +94,36 @@ expand_street_abbreviation <- function(x) {
   gsub("str\\.?(?=$|\\s)", "stra\u00dfe", x, ignore.case = TRUE, perl = TRUE)
 }
 
+#' Expand trailing "tr"/"tr." street abbreviations (broad form) and trim
+#' whitespace
+#'
+#' @description A second, more permissive pass at the same "str"/"str."
+#' abbreviation \code{\link{expand_street_abbreviation}} already handles.
+#' Where that function requires the abbreviation to be followed by
+#' whitespace or the end of the string, this one matches "tr." anywhere
+#' in the string, and a trailing "tr" without a period -- relying on the
+#' fact that the German abbreviation is always spelled with a leading
+#' "s" ("str."), which the replacement leaves untouched, so it only ever
+#' needs to supply the "trasse"/"tra\u00dfe" part. In practice this mostly
+#' runs as a no-op, since \code{expand_street_abbreviation()} (registered
+#' before this one, see \code{.bkg_input_fixes}) already catches the
+#' common cases -- it exists for the raw forms that lookahead misses
+#' (e.g. an abbreviation followed directly by punctuation other than
+#' whitespace). Also trims stray leading/trailing whitespace, which the
+#' raw input occasionally carries.
+#'
+#' @param x \code{[character]}
+#'
+#' @returns \code{[character]}
+#'
+#' @noRd
+expand_street_abbreviation_broad <- function(x) {
+  x <- trimws(x)
+  x <- gsub("tr\\.", "tra\u00dfe", x)
+  x <- gsub("tr$", "tra\u00dfe", x)
+  x
+}
+
 #' Collapse a house number range down to its first number
 #'
 #' @description House number ranges (e.g. "13-15") don't exist as a single
@@ -119,6 +149,129 @@ collapse_house_number_range <- function(x) {
     "\\1",
     x
   )
+}
+
+# -----------------------------------------------------------------------------
+# User-extensible input-fix registry
+# -----------------------------------------------------------------------------
+# The built-in fixes above (expand_street_abbreviation(),
+# expand_street_abbreviation_broad(), strip_place_suffix(),
+# clean_house_number_input(), collapse_house_number_range()) cover the cases
+# seen so far, but real-world address data always has more quirks than any
+# fixed set of regexes can anticipate. This registry lets users layer their
+# own cleaning functions on top -- per address component, run in registration
+# order AFTER the built-in fixes -- without having to fork or monkey-patch
+# the matching internals themselves.
+
+.bkg_input_fixes <- new.env(parent = emptyenv())
+
+.bkg_input_fixes$street <- list(
+  expand_street_abbreviation = expand_street_abbreviation,
+  expand_street_abbreviation_broad = expand_street_abbreviation_broad
+)
+
+.bkg_input_fixes$house_number <- list(
+  clean_house_number_input = clean_house_number_input,
+  collapse_house_number_range = collapse_house_number_range
+)
+
+.bkg_input_fixes$place <- list(
+  strip_place_suffix = strip_place_suffix
+)
+
+.bkg_input_fixes$zip_code <- list()  # no built-in defaults yet; see bkg_add_input_fix()
+
+#' Add a custom input-cleaning step
+#'
+#' @description Registers one or more functions that clean a raw address
+#' component before matching, in addition to (after) the package's
+#' built-in fixes. Each function must take a character vector and return a
+#' character vector of the same length. Registered fixes apply to every
+#' subsequent call of \code{\link{bkg_geocode_offline}} in the current R
+#' session.
+#'
+#' @param street,house_number,zip_code,place \code{[function/list]}
+#'
+#' Optional cleaning function(s) for the respective address component.
+#' Either a single function, or a list of functions to register several
+#' fixes for the same component at once -- they are then applied in the
+#' order given, after any already-registered fixes for that component.
+#' Only the components you actually want to add a fix for need to be
+#' supplied.
+#'
+#' @returns \code{NULL}, invisibly. Called for its side effect of
+#' registering the fix(es).
+#'
+#' @examples
+#' \dontrun{
+#' # Add a single custom street fix on top of the built-in one
+#' bkg_add_input_fix(street = function(x) gsub("Str\\.?$", "stra\u00dfe", x))
+#'
+#' # Add several fixes for the same component at once, applied in order
+#' bkg_add_input_fix(
+#'   place = list(
+#'     function(x) gsub("^Landkreis ", "", x),
+#'     function(x) gsub("\\s+", " ", trimws(x))
+#'   )
+#' )
+#'
+#' # Add fixes for two different components at once
+#' bkg_add_input_fix(
+#'   place = function(x) gsub("^Landkreis ", "", x),
+#'   zip_code = function(x) trimws(x)
+#' )
+#' }
+#'
+#' @encoding UTF-8
+#' @export
+bkg_add_input_fix <- function(street = NULL, house_number = NULL,
+                              zip_code = NULL, place = NULL) {
+  fixes <- list(
+    street = street, house_number = house_number,
+    zip_code = zip_code, place = place
+  )
+  fixes <- fixes[!vapply(fixes, is.null, logical(1))]
+  
+  # Normalize each argument to a list of functions, whether the user
+  # passed a single bare function or already a list of several.
+  fixes <- lapply(fixes, function(fix) {
+    if (is.function(fix)) list(fix) else fix
+  })
+  
+  for (component in names(fixes)) {
+    component_fixes <- fixes[[component]]
+    
+    if (!is.list(component_fixes) ||
+        !all(vapply(component_fixes, is.function, logical(1)))) {
+      cli::cli_abort(paste(
+        "{.arg {component}} must be a single function or a list of",
+        "functions."
+      ))
+    }
+    
+    for (fix in component_fixes) {
+      idx <- length(.bkg_input_fixes[[component]]) + 1
+      .bkg_input_fixes[[component]][[idx]] <- fix
+    }
+  }
+  
+  invisible(NULL)
+}
+
+#' Apply all registered fixes for one address component, in order
+#'
+#' @param x \code{[character]} Raw values for the given component.
+#' @param component \code{[character]} One of \code{"street"},
+#' \code{"house_number"}, \code{"zip_code"}, \code{"place"}.
+#'
+#' @returns \code{[character]}
+#'
+#' @noRd
+apply_input_fixes <- function(x, component) {
+  for (fix in .bkg_input_fixes[[component]]) {
+    x <- fix(x)
+  }
+  x
 }
 
 # Street normalization:
@@ -161,10 +314,18 @@ bkg_match_places_ddb <- function(
     if (nchar(zip) == 4) paste0("0", zip) else zip
   }, FUN.VALUE = character(1))
   
-  # Strip "Ortsteil" (OT) suffixes into a separate matching key -- the
-  # original place column (used for both matching's zip join key context
-  # and, further downstream, the displayed input value) is left untouched.
-  .data$place_match_key <- strip_place_suffix(.data[[place]])
+  # Matching-key only, applied locally (like the Mannheim fix in
+  # bkg_match_addresses_ddb) rather than centrally upstream -- built-in +
+  # user-added fixes (see bkg_add_input_fix()) never touch the original
+  # place/zip_code columns themselves, which stay available unmodified for
+  # display further downstream.
+  .data$place_match_key <- apply_input_fixes(.data[[place]], "place")
+  
+  # Zip codes get the same treatment: a dedicated matching key, always
+  # computed AFTER the leading-zero padding above (so padding can't
+  # accidentally be skipped by a registered fix), never overwriting the
+  # displayed zip_code column itself.
+  .data$zip_match_key <- apply_input_fixes(.data[, zip_code], "zip_code")
   
   if (isTRUE(verbose)) {
     cli::cli_inform(
@@ -393,24 +554,27 @@ bkg_match_addresses_ddb <- function(
   }
   
   # Prepare input data in R ----
-  # Preserve the raw street text for display; everything below (Mannheim
-  # square address fix, abbreviation expansion) is for MATCHING purposes
-  # only via street_clean, and never shown to the user.
-  matched_data$street_raw <- matched_data[[street]]
+  # Preserve the raw street text for display -- whole_address_in (which
+  # feeds address_input) is built from THIS, below, never from the
+  # cleaned matching key.
+  matched_data$street_raw <- trimws(matched_data[[street]])
   
-  # Fix Mannheim square addresses (matching-key only)
+  # Fix Mannheim square addresses (matching-key only), then apply
+  # registered input fixes (built-in + user-added via
+  # bkg_add_input_fix()) locally, right where the matching key is
+  # actually used -- mirrors the same pattern as the zip_code/place fixes
+  # in bkg_match_places_ddb().
   street_for_matching <- gsub(
     "^([A-Z])([1-9])$", "\\1 \\2",
     matched_data$street_raw
   )
+  matched_data$street_clean <- apply_input_fixes(street_for_matching, "street")
   
-  # Expand "str"/"str." to "strasse" (matching-key only, see
-  # expand_street_abbreviation()).
-  matched_data$street_clean <- expand_street_abbreviation(street_for_matching)
-  
-  # Whole address for input
+  # Whole address for DISPLAY -- built from the raw street text, never
+  # from street_clean, so address_input always reflects exactly what was
+  # entered, regardless of which input fixes are registered.
   matched_data$whole_address_in <- trimws(paste0(
-    matched_data$street_clean,
+    matched_data$street_raw,
     if (house_number %in% colnames(matched_data)) {
       paste0(" ", matched_data[[house_number]], recycle0 = TRUE)
     },
@@ -418,28 +582,20 @@ bkg_match_addresses_ddb <- function(
   ))
   
   # House number as character, kept exactly as entered -- this is the
-  # displayed value (house_number_input). All cleaning for matching
-  # purposes (see below) only ever affects hn_input_key, never hn_input.
+  # displayed value (house_number_input).
   if (house_number %in% colnames(matched_data)) {
     matched_data$hn_input <- as.character(matched_data[[house_number]])
   } else {
     matched_data$hn_input <- NA_character_
   }
   
-  # House number ranges (e.g. "13-15") don't exist as a single row in the
-  # reference data -- only the individual house numbers "13", "14", "15" do.
-  # For MATCHING purposes only, collapse such a range down to its first
-  # number (mirrors how ranges were always resolved to their first number
-  # previously). hn_input_key additionally strips whitespace/periods (see
-  # clean_house_number_input()) before collapsing the range -- both steps
-  # only ever affect the matching key, never the displayed hn_input.
-  # Comparing the full, uncleaned range string via jaro_winkler instead can
-  # match an unrelated house number that happens to share many characters
-  # with the range string (e.g. "13-15" is closer to "135" than to "13" in
-  # pure character-overlap terms).
-  matched_data$hn_input_key <- collapse_house_number_range(
-    clean_house_number_input(matched_data$hn_input)
-  )
+  # Matching-key only, applied locally. Comparing the full, uncleaned
+  # range string via jaro_winkler instead can match an unrelated house
+  # number that happens to share many characters with the range string
+  # (e.g. "13-15" is closer to "135" than to "13" in pure
+  # character-overlap terms), which is why the registry's default
+  # collapse_house_number_range() fix matters here.
+  matched_data$hn_input_key <- apply_input_fixes(matched_data$hn_input, "house_number")
   
   # Build parquet paths for relevant places only ----
   relevant_slugs <- unique(matched_data$place_slug)
@@ -688,7 +844,12 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     },
     zip_code_input = messy_data[[paste0(zip_code, "_input")]],
     place_input = messy_data[[paste0(place, "_input")]],
-    address_output = messy_data$whole_address_add,
+    # trimws() here handles a database-side artifact: place_add becomes an
+    # empty string (not NA) wherever the raw BKG data says "Ortsteil
+    # unbekannt", so whole_address_add ends in a trailing space for those
+    # rows. Fixed here rather than at build time, so it doesn't require a
+    # database rebuild.
+    address_output = trimws(messy_data$whole_address_add),
     street_output = messy_data[[paste0(street, "_output")]],
     house_number_output = if (house_number != "") {
       messy_data[[paste0(house_number, "_output")]]
