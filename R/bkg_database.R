@@ -405,17 +405,19 @@ bkg_build_database_impl <- function(
       con,
       sprintf(
         "
-        COPY (SELECT * FROM %s)
-        TO '%s'
-        (
-          FORMAT PARQUET,
-          PARTITION_BY(place_slug),
-          COMPRESSION snappy,
-          OVERWRITE_OR_IGNORE
-        )
-        ",
+    COPY (SELECT * FROM %s)
+    TO '%s'
+    (
+      FORMAT PARQUET,
+      PARTITION_BY(place_slug),
+      COMPRESSION snappy,
+      OVERWRITE_OR_IGNORE,
+      FILENAME_PATTERN '%s_{i}'
+    )
+    ",
         view_name,
-        ga_path
+        ga_path,
+        i 
       )
     )
     
