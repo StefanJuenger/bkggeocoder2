@@ -195,6 +195,17 @@ bkg_match_places_ddb <- function(
   # SQL MATCHING (reclin2-like scoring)
   # ---------------------------
   
+  # Zip codes are blocked on their first 3 digits (the "Postleitregion")
+  # rather than joined on exact equality. A single-digit typo in the zip
+  # code (e.g. a transposition like "14872" vs. the correct "14827") would
+  # otherwise produce zero join candidates for that row -- and since the
+  # place-name comparison further down only ever runs on whatever the join
+  # already produced, a wrong zip code silently means the address is
+  # unmatched, no matter how well the place name itself matches. Blocking
+  # on the prefix keeps the candidate set small (a few dozen to a few
+  # hundred places per block, still trivial for jaro_winkler_similarity),
+  # while letting the exact zip code itself be scored fuzzily alongside the
+  # place name instead of acting as a hard filter.
   sql <- sprintf("
     WITH ref AS (
       SELECT
@@ -203,13 +214,15 @@ bkg_match_places_ddb <- function(
         zip_code,
         place_slug,
         trim(concat(place, ' ', COALESCE(place_add, ''))) AS place_full,
-        %s AS place_simple
+        %s AS place_simple,
+        substr(zip_code, 1, 3) AS zip_block
       FROM read_parquet(%s)
     ),
     input_norm AS (
       SELECT
         *,
-        %s AS place_simple
+        %s AS place_simple,
+        substr(\"%s\", 1, 3) AS zip_block
       FROM %s
     ),
     scored AS (
@@ -220,18 +233,19 @@ bkg_match_places_ddb <- function(
         ref.place_slug,
         -- Ort similarity: both sides normalized identically via nk_plain()
         jaro_winkler_similarity(input.place_simple, ref.place_simple) AS place_score,
+        -- PLZ similarity: fuzzy instead of exact, so a single-digit typo
+        -- (e.g. a transposition) is penalized rather than filtered out
+        -- entirely
+        jaro_winkler_similarity(input.\"%s\", ref.zip_code) AS zip_score,
         -- kombinierter Score (multiplikativ stabiler)
         (
           jaro_winkler_similarity(input.place_simple, ref.place_simple)
           *
-          CASE
-            WHEN input.\"%s\" = ref.zip_code THEN 1.0
-            ELSE 0.2
-          END
+          jaro_winkler_similarity(input.\"%s\", ref.zip_code)
         ) AS total_score
       FROM input_norm input
       LEFT JOIN ref
-        ON input.\"%s\" = ref.zip_code
+        ON input.zip_block = ref.zip_block
     )
     SELECT *
     FROM scored
@@ -243,6 +257,7 @@ bkg_match_places_ddb <- function(
                  nk_plain("concat(place, ' ', COALESCE(place_add, ''))"),
                  DBI::dbQuoteString(con, zip_places_path),
                  nk_plain("place_match_key"),
+                 zip_code,
                  input_tbl,
                  zip_code,
                  zip_code
