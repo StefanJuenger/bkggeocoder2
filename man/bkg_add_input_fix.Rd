@@ -9,7 +9,8 @@ bkg_add_input_fix(
   street = NULL,
   house_number = NULL,
   zip_code = NULL,
-  place = NULL
+  place = NULL,
+  reset = FALSE
 )
 }
 \arguments{
@@ -23,8 +24,19 @@ standing in for the input), or built from the common patterns
 \code{\link{bkg_fix_trim}} -- all forms can be mixed freely. Pass a
 single fix, or a list of several to register them all at once; they
 run in the order given, after any already-registered fixes for that
-component. Only the components you actually want to add a fix for need
-to be supplied.}
+component (unless \code{reset = TRUE}, see below). Only the
+components you actually want to add a fix for need to be supplied.}
+
+\item{reset}{\code{[logical]}
+
+If \code{TRUE}, drops any custom fixes previously added (via this
+function) for each component being set in this call -- back to just
+the package's built-in fixes for that component -- before adding the
+new fix(es). The built-in fixes themselves are never removed; this is
+a shorthand for calling \code{\link{bkg_reset_input_fixes}} followed
+by a normal \code{bkg_add_input_fix()} call. Only affects the
+component(s) actually passed in this call; any others keep whatever
+they had. Defaults to \code{FALSE} (append to what's already there).}
 }
 \value{
 \code{NULL}, invisibly. Called for its side effect of
@@ -69,6 +81,10 @@ bkg_add_input_fix(
   place = bkg_fix_remove("^Landkreis "),
   zip_code = bkg_fix_trim()
 )
+
+# Drop any custom fixes previously added for "street" (built-ins stay),
+# then add just this one fix on top of the defaults
+bkg_add_input_fix(street = ~ trimws(.x), reset = TRUE)
 }
 
 }

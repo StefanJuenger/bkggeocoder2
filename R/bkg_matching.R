@@ -420,8 +420,18 @@ bkg_fix_trim <- function(which = "both") {
 #' \code{\link{bkg_fix_trim}} -- all forms can be mixed freely. Pass a
 #' single fix, or a list of several to register them all at once; they
 #' run in the order given, after any already-registered fixes for that
-#' component. Only the components you actually want to add a fix for need
-#' to be supplied.
+#' component (unless \code{reset = TRUE}, see below). Only the
+#' components you actually want to add a fix for need to be supplied.
+#' @param reset \code{[logical]}
+#'
+#' If \code{TRUE}, drops any custom fixes previously added (via this
+#' function) for each component being set in this call -- back to just
+#' the package's built-in fixes for that component -- before adding the
+#' new fix(es). The built-in fixes themselves are never removed; this is
+#' a shorthand for calling \code{\link{bkg_reset_input_fixes}} followed
+#' by a normal \code{bkg_add_input_fix()} call. Only affects the
+#' component(s) actually passed in this call; any others keep whatever
+#' they had. Defaults to \code{FALSE} (append to what's already there).
 #'
 #' @returns \code{NULL}, invisibly. Called for its side effect of
 #' registering the fix(es).
@@ -457,12 +467,19 @@ bkg_fix_trim <- function(which = "both") {
 #'   place = bkg_fix_remove("^Landkreis "),
 #'   zip_code = bkg_fix_trim()
 #' )
+#'
+#' # Drop any custom fixes previously added for "street" (built-ins stay),
+#' # then add just this one fix on top of the defaults
+#' bkg_add_input_fix(street = ~ trimws(.x), reset = TRUE)
 #' }
 #'
 #' @encoding UTF-8
 #' @export
 bkg_add_input_fix <- function(street = NULL, house_number = NULL,
-                              zip_code = NULL, place = NULL) {
+                              zip_code = NULL, place = NULL,
+                              reset = FALSE) {
+  check_lgl(reset)
+  
   fixes <- list(
     street = street, house_number = house_number,
     zip_code = zip_code, place = place
@@ -483,6 +500,10 @@ bkg_add_input_fix <- function(street = NULL, house_number = NULL,
         "{.arg {component}} must be a function, a formula, or a list of",
         "functions/formulas."
       ))
+    }
+    
+    if (isTRUE(reset)) {
+      .bkg_input_fixes[[component]] <- .bkg_default_input_fixes()[[component]]
     }
     
     for (fix in component_fixes) {
@@ -769,14 +790,18 @@ bkg_match_addresses_ddb <- function(
     )
     empty[[paste0(street, ".x")]] <- character(0)
     empty[[paste0(street, ".y")]] <- character(0)
+    empty[[paste0(street, ".cleaned")]] <- character(0)
     if (house_number != "") {
       empty[[paste0(house_number, ".x")]] <- character(0)
       empty[[paste0(house_number, ".y")]] <- character(0)
+      empty[[paste0(house_number, ".cleaned")]] <- character(0)
     }
     empty[[paste0(zip_code, ".x")]] <- character(0)
     empty[[paste0(zip_code, ".y")]] <- character(0)
+    empty[[paste0(zip_code, ".cleaned")]] <- character(0)
     empty[[paste0(place, ".x")]] <- character(0)
     empty[[paste0(place, ".y")]] <- character(0)
+    empty[[paste0(place, ".cleaned")]] <- character(0)
     
     return(empty)
   }
@@ -880,6 +905,7 @@ bkg_match_addresses_ddb <- function(
       SELECT
         input.\".iid\",
         input.street_raw,
+        input.street_clean,
         input.hn_norm AS input_hn_norm,
         input.hn_input,
         input.hn_input_key,
@@ -904,6 +930,7 @@ bkg_match_addresses_ddb <- function(
       SELECT
         sm.\".iid\",
         sm.street_raw,
+        sm.street_clean,
         sm.hn_input,
         sm.hn_input_key,
         sm.whole_address_in,
@@ -996,14 +1023,24 @@ bkg_match_addresses_ddb <- function(
   
   result[[paste0(street, ".x")]] <- geocoded$street_raw
   result[[paste0(street, ".y")]] <- geocoded$street_out
+  result[[paste0(street, ".cleaned")]] <- geocoded$street_clean
   if (house_number != "") {
     result[[paste0(house_number, ".x")]] <- geocoded$hn_input
     result[[paste0(house_number, ".y")]] <- geocoded$hn_out
+    result[[paste0(house_number, ".cleaned")]] <- geocoded$hn_input_key
   }
   result[[paste0(zip_code, ".x")]] <- geocoded$zip_code_in
   result[[paste0(zip_code, ".y")]] <- geocoded$zip_code_out
+  # zip_match_key/place_match_key were already computed once in
+  # bkg_match_places_ddb() and survive into matched_data -- pulled in
+  # directly here rather than round-tripped through the SQL above, since
+  # they don't depend on anything the address-matching query computes.
+  result[[paste0(zip_code, ".cleaned")]] <-
+    matched_data$zip_match_key[match(geocoded$.iid, matched_data$.iid)]
   result[[paste0(place, ".x")]] <- geocoded$place_in
   result[[paste0(place, ".y")]] <- geocoded$place_out
+  result[[paste0(place, ".cleaned")]] <-
+    matched_data$place_match_key[match(geocoded$.iid, matched_data$.iid)]
   
   # Merge back with input to keep .iid alignment ----
   result <- merge(
@@ -1056,10 +1093,13 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
   
   is_out <- grepl("\\.y$", names(messy_data))
   is_inp <- grepl("\\.x$", names(messy_data))
+  is_cleaned <- grepl("\\.cleaned$", names(messy_data))
   new_out <- gsub("\\.y$", "_output", names(messy_data)[is_out])
   new_in <- gsub("\\.x$", "_input", names(messy_data)[is_inp])
+  new_cleaned <- gsub("\\.cleaned$", "_cleaned", names(messy_data)[is_cleaned])
   names(messy_data)[is_out] <- new_out
   names(messy_data)[is_inp] <- new_in
+  names(messy_data)[is_cleaned] <- new_cleaned
   
   # Clean dataset
   clean_data <- tibble::tibble(
@@ -1080,6 +1120,26 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     },
     zip_code_input = messy_data[[paste0(zip_code, "_input")]],
     place_input = messy_data[[paste0(place, "_input")]],
+    # The value actually used for matching, i.e. address_input after any
+    # built-in and/or user-registered input fixes (see
+    # bkg_add_input_fix()) -- distinct from BOTH address_input (fully
+    # raw) and address_output (the matched database record). Seeing this
+    # separately is what makes a fix bug (e.g. one that silently strips a
+    # house-number suffix) visible at all, instead of it only showing up
+    # as an unexpectedly high/low score.
+    address_cleaned = paste(
+      messy_data[[paste0(street, "_cleaned")]],
+      if (house_number != "") messy_data[[paste0(house_number, "_cleaned")]],
+      messy_data[[paste0(zip_code, "_cleaned")]],
+      messy_data[[paste0(place, "_cleaned")]],
+      recycle0 = TRUE
+    ),
+    street_cleaned = messy_data[[paste0(street, "_cleaned")]],
+    house_number_cleaned = if (house_number != "") {
+      messy_data[[paste0(house_number, "_cleaned")]]
+    },
+    zip_code_cleaned = messy_data[[paste0(zip_code, "_cleaned")]],
+    place_cleaned = messy_data[[paste0(place, "_cleaned")]],
     # trimws() here handles a database-side artifact: place_add becomes an
     # empty string (not NA) wherever the raw BKG data says "Ortsteil
     # unbekannt", so whole_address_add ends in a trailing space for those
