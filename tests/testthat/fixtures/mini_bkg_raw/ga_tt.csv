@@ -7,3 +7,5 @@ N;DEtest0000000006;A;08;1;25;0058;058;0000;99999;15;;500050,000;5500050,000;Test
 N;DEtest0000000007;B;08;1;25;0058;058;0000;99999;20;;500060,000;5500060,000;Teststraße;12345;Musterstadt;;;Musterstadt;;zshh;zshh;zshh;zshh
 N;DEtest0000000008;P;08;1;25;0058;058;0000;99999;30;;500070,000;5500070,000;Teststraße;12345;Musterstadt;;;Musterstadt;;zshh;zshh;zshh;zshh
 N;DEtest0000000009;C;08;1;25;0058;058;0000;99999;87654321;;500080,000;5500080,000;Flurweg;12345;Musterstadt;;;Musterstadt;;zshh;zshh;zshh;zshh
+N;DEtest0000000010;A;08;1;25;0058;058;0000;99999;1;;500100,000;5500100,000;Teststraße;12301;Musterstadt;;Ortsteil Nirgendswo;Musterstadt;;zshh;zshh;zshh;zshh
+N;DEtest0000000011;A;08;1;25;0058;058;0000;99999;1;;500110,000;5500110,000;Teststraße;12302;Musterstadt;;;Musterstadt;;zshh;zshh;zshh;zshh

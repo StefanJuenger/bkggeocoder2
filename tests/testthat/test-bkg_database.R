@@ -174,7 +174,7 @@ test_that("building the database drops katasterinterne house numbers", {
   
   version <- read_version_metadata(file.path(db_dir, "version.dcf"))
   
-  expect_equal(version$n_addresses, 8)
+  expect_equal(version$n_addresses, 10)
   expect_equal(version$n_dropped_katasterintern, 1)
 })
 
@@ -314,4 +314,180 @@ test_that("the *_input/*_output columns work with non-default column names too",
   expect_equal(result$house_number_input, "10")
   expect_equal(result$place_input, "Musterstadt")
   expect_equal(result$house_number_output, "10/2")
+})
+
+# ------------------------------------------------------------------------
+# Fuzzy zip-code blocking: a single-digit zip typo should still resolve
+# via the fuzzy fallback in bkg_match_places_ddb(), rather than failing
+# to match at all the way an exact-equality join would.
+#
+# Note: this fixture only has one place/zip combination, so it can only
+# exercise the "no exact match at all, fuzzy recovery kicks in" path --
+# not the "exact match must always outrank a same-block fuzzy competitor"
+# safeguard, which needs a second place sharing the same 3-digit zip
+# block to be meaningful. That would need extending the fixture data.
+# ------------------------------------------------------------------------
+
+test_that("offline geocoding recovers from a single zip-code typo via fuzzy blocking", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    street       = "Teststraße",
+    house_number = "10",
+    zip_code     = "12346",  # one digit off from the real "12345"
+    place        = "Musterstadt"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  expect_false(is.na(result$score))
+  expect_equal(result$zip_code_output, "12345")
+  expect_equal(result$house_number_output, "10/2")
+})
+
+test_that("an exact zip code still matches normally (no regression from fuzzy blocking)", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    street       = "Teststraße",
+    house_number = "10",
+    zip_code     = "12345",
+    place        = "Musterstadt"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  expect_equal(result$zip_code_output, "12345")
+  expect_true(result$place_score > 0.99)
+})
+
+test_that("an exact zip match wins over a same-block fuzzy competitor with a better place-name score", {
+  # Regression test for the actual vulnerability fuzzy zip blocking
+  # introduced: jaro_winkler_similarity() between two zip codes sharing
+  # the same 3-digit block is already ~0.8-0.92 (nowhere near as
+  # discriminating as the old exact-equality join), which on its own
+  # isn't enough of a gap to protect a correct-but-imperfectly-matched
+  # place (one needing its Ortsteil suffix, via the fixture's zip 12301
+  # "Musterstadt"/"Ortsteil Nirgendswo") against a same-block, different
+  # zip place that happens to string-match the input's place name
+  # perfectly (zip 12302, plain "Musterstadt", no suffix).
+  #
+  # Without the ORDER BY safeguard in bkg_match_places_ddb()'s QUALIFY
+  # clause, 12302 (place_score 1.0 * zip_score ~0.92 = ~0.92) outscores
+  # 12301 (place_score ~0.876 * zip_score 1.0 = ~0.876) on raw
+  # total_score alone, even though the input's zip code is an exact,
+  # unambiguous match for 12301. The fix makes any exact-zip candidate
+  # with at least a plausible place score (>= 0.6) win outright,
+  # regardless of how a fuzzy-zip competitor's total_score compares.
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    street       = "Teststraße",
+    house_number = "1",
+    zip_code     = "12301",
+    place        = "Musterstadt"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  expect_equal(result$zip_code_output, "12301")
+})
+
+# ------------------------------------------------------------------------
+# The *_cleaned columns: the value actually used for matching (after
+# built-in and/or user-registered input fixes), distinct from both
+# *_input (raw) and *_output (the matched database record).
+# ------------------------------------------------------------------------
+
+test_that("offline geocoding exposes cleaned (post-fix) values alongside input/output", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    street       = "Teststr.",
+    house_number = "10 .",
+    zip_code     = "12345",
+    place        = "Musterstadt OT Nirgends"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  expect_true(all(c(
+    "street_cleaned", "house_number_cleaned", "zip_code_cleaned",
+    "place_cleaned", "address_cleaned"
+  ) %in% names(result)))
+  
+  # Raw stays raw, cleaned reflects the applied built-in fixes, and is
+  # distinct from either the raw input or the matched output.
+  expect_equal(result$street_input, "Teststr.")
+  expect_equal(result$street_cleaned, "Teststraße")
+  expect_equal(result$place_input, "Musterstadt OT Nirgends")
+  expect_equal(result$place_cleaned, "Musterstadt")
+  expect_equal(result$house_number_input, "10 .")
+  expect_equal(result$house_number_cleaned, "10")
+})
+
+test_that("address_cleaned sits alongside address_input/address_output, not identical to either", {
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  addresses <- data.frame(
+    street       = "Teststr.",
+    house_number = "10",
+    zip_code     = "12345",
+    place        = "Musterstadt"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  expect_false(result$address_cleaned == result$address_input)
+  expect_match(result$address_cleaned, "Teststra\u00dfe")
+})
+
+# ------------------------------------------------------------------------
+# A custom fix registered via bkg_add_input_fix() should actually reach
+# the matching stage -- this was the whole point of exposing *_cleaned:
+# a bug in a user-registered fix is otherwise invisible until it distorts
+# a score in a way that's hard to trace back to its cause.
+# ------------------------------------------------------------------------
+
+test_that("a custom input fix registered via bkg_add_input_fix() affects real matching", {
+  withr::defer(bkg_reset_input_fixes())
+  
+  fixture_dir <- test_path("fixtures", "mini_bkg_raw")
+  db_dir <- withr::local_tempdir()
+  
+  bkg_build_database_impl(fixture_dir, db_dir)
+  
+  # A deliberately aggressive custom fix: strips any trailing letter from
+  # the house number before matching (mirrors the kind of well-meaning
+  # but too-broad fix that motivated exposing house_number_cleaned in the
+  # first place).
+  bkg_reset_input_fixes("house_number")
+  bkg_add_input_fix(house_number = ~ sub("[a-zA-Z]$", "", .x))
+  
+  addresses <- data.frame(
+    street       = "Teststraße",
+    house_number = "10a",
+    zip_code     = "12345",
+    place        = "Musterstadt"
+  )
+  
+  result <- bkg_geocode_offline(addresses, db_path = db_dir, verbose = FALSE)
+  
+  expect_equal(result$house_number_input, "10a")
+  expect_equal(result$house_number_cleaned, "10")
 })
