@@ -490,9 +490,17 @@ bkg_classify <- function(.data, thresholds = list(),
   default_labels <- .bkg_default_quality_labels()
   unknown_labels <- setdiff(names(labels), names(default_labels))
   if (length(unknown_labels)) {
-    cli::cli_abort(paste(
+    # The "valid names" list is pre-collapsed into a single string before
+    # The message uses c(...) (separate bullets), not paste() (one
+    # combined string): paste() would merge both lines into a SINGLE glue
+    # block, so {?s} in line 1 would still "see" the {valid_labels}
+    # interpolation in line 2 and cli can't tell which one is "the"
+    # pluralization quantity ("Multiple quantities for pluralization").
+    # Each element of a c(...) vector is evaluated by cli independently.
+    valid_labels <- paste(names(default_labels), collapse = ", ")
+    cli::cli_abort(c(
       "Unknown label name{?s}: {.val {unknown_labels}}.",
-      "Must be one of {.val {names(default_labels)}}."
+      "i" = "Must be one of: {valid_labels}."
     ))
   }
   
@@ -502,9 +510,16 @@ bkg_classify <- function(.data, thresholds = list(),
     }
     unknown_rules <- setdiff(names(exclude_ids), .bkg_quality_rules())
     if (length(unknown_rules)) {
-      cli::cli_abort(paste(
+      # Same c(...)-instead-of-paste() fix as above, plus: a dot-prefixed
+      # function call directly inside {} (.bkg_quality_rules()) trips up
+      # cli's own syntax -- a leading dot inside {} is interpreted as a
+      # style directive, not as R code, regardless of parentheses.
+      # Pre-computing into a plain-named local variable avoids both issues
+      # at once.
+      valid_rules <- paste(.bkg_quality_rules(), collapse = ", ")
+      cli::cli_abort(c(
         "Unknown rule name{?s} in {.arg exclude_ids}: {.val {unknown_rules}}.",
-        "Must be one of {.val {.bkg_quality_rules()}}."
+        "i" = "Must be one of: {valid_rules}."
       ))
     }
   }
@@ -568,13 +583,26 @@ bkg_classify <- function(.data, thresholds = list(),
 #' \code{\link{bkg_classify}} call is printed to the console at
 #' the end of the session, not attached to the returned object.
 #'
+#' Thin wrapper around interactive()
+#'
+#' @description Exists purely so tests can reliably mock this check via
+#' \code{local_mocked_bindings()} -- \code{base}'s namespace is locked,
+#' which can make directly mocking \code{base::interactive()} unreliable,
+#' whereas mocking a binding within this package's own (unlocked)
+#' namespace always works.
+#'
+#' @noRd
+.bkg_is_interactive <- function() {
+  interactive()
+}
+
 #' @seealso \code{\link{bkg_classify}}
 #'
 #' @export
 bkg_classify_interactive <- function(.data, thresholds = list(),
                                      id_col = NULL, labels = list(),
                                      n_preview = 10) {
-  if (!interactive()) {
+  if (!.bkg_is_interactive()) {
     cli::cli_abort(paste(
       "{.fun bkg_classify_interactive} requires an interactive R",
       "session -- use {.fun bkg_classify} directly in scripts."
@@ -597,9 +625,10 @@ bkg_classify_interactive <- function(.data, thresholds = list(),
   default_labels <- .bkg_default_quality_labels()
   unknown_labels <- setdiff(names(labels), names(default_labels))
   if (length(unknown_labels)) {
-    cli::cli_abort(paste(
+    valid_labels <- paste(names(default_labels), collapse = ", ")
+    cli::cli_abort(c(
       "Unknown label name{?s}: {.val {unknown_labels}}.",
-      "Must be one of {.val {names(default_labels)}}."
+      "i" = "Must be one of: {valid_labels}."
     ))
   }
   lbl <- utils::modifyList(default_labels, labels)
