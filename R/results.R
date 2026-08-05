@@ -130,9 +130,8 @@ plot.GeocodingResults <- function(x, ...) {
 #' other in the first place.
 #'
 #' @param .data \code{[GeocodingResults]} Output of
-#' \code{\link{bkg_geocode_offline}} or \code{\link{bkg_geocode}}, or any
-#' subset of it (e.g. already filtered down to a handful of rows you want
-#' a closer look at).
+#' \code{\link{bkg_geocode_offline}}, or any subset of it (e.g. already
+#' filtered down to a handful of rows you want a closer look at).
 #' @param id_col \code{[character/NULL]} Optional column used to label
 #' each block (e.g. \code{"ID"}). Falls back to a plain row number if
 #' omitted or not found.
@@ -382,7 +381,7 @@ bkg_show_address_detail <- function(.data, id_col = NULL) {
 #' that walks through each rule with a preview before committing to it.
 #'
 #' @param .data \code{[GeocodingResults]} Output of
-#' \code{\link{bkg_geocode_offline}} or \code{\link{bkg_geocode}}.
+#' \code{\link{bkg_geocode_offline}}.
 #' @param thresholds \code{[list]}
 #'
 #' Named list overriding any subset of the default thresholds (see
@@ -591,7 +590,7 @@ bkg_classify <- function(.data, thresholds = list(),
 #' rule's decision.
 #'
 #' @returns \code{.data} -- the same object \code{\link{bkg_geocode_offline}}
-#' (or \code{\link{bkg_geocode}}) returned, with an added \code{quality}
+#' returned, with an added \code{quality}
 #' column, and nothing else changed. The reproducible
 #' \code{\link{bkg_classify}} call is printed to the console at
 #' the end of the session, not attached to the returned object.
@@ -828,7 +827,7 @@ bkg_classify_interactive <- function(.data, thresholds = list(),
 #' thresholds.
 #'
 #' @param .data \code{[GeocodingResults]} Output of
-#' \code{\link{bkg_geocode_offline}}/\code{\link{bkg_geocode}}, optionally
+#' \code{\link{bkg_geocode_offline}}, optionally
 #' already run through \code{\link{bkg_classify}}.
 #' @param ... Passed on to \code{\link{bkg_classify}} if
 #' \code{.data} doesn't already have a \code{quality} column (e.g. a
