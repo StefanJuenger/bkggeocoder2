@@ -75,6 +75,23 @@
   )
 }
 
+# Human-readable step titles shown in bkg_classify_interactive()'s header
+# (see .bkg_quality_rules()) -- deliberately a THIRD, separate concept from
+# both the internal rule name (used to look up thresholds/exclude_ids) and
+# the quality-column label (.bkg_default_quality_labels(), what ends up in
+# the data): a good column value ("semi_perfect") is short and
+# code-friendly for later filtering, but reads as internal jargon in a
+# header meant for a human to skim during review, where a longer,
+# descriptive phrase is more useful.
+.bkg_default_quality_titles <- function() {
+  list(
+    perfect = "Perfect matches",
+    semi_perfect = "Possible other perfect matches",
+    wrong_house_number = "Wrong house numbers",
+    wrong_street = "Wrong street names"
+  )
+}
+
 #' Boolean mask for one quality rule
 #'
 #' @noRd
@@ -395,13 +412,25 @@ bkg_classify <- function(.data, thresholds = list(),
 #' a preview of the rows it would catch with the current thresholds, and
 #' lets you accept it, adjust its thresholds, exclude specific IDs from
 #' it, or skip the rule entirely -- before moving on to the next one. At
-#' the end, prints (and attaches as an attribute) the exact
-#' \code{\link{bkg_classify}} call that reproduces the session's
-#' result, so the outcome of an interactive review can be replayed
-#' non-interactively later (updated data, a script for colleagues, etc.)
-#' without repeating the manual review.
+#' the end, prints the exact \code{\link{bkg_classify}} call that
+#' reproduces the session's result, so the outcome of an interactive
+#' review can be replayed non-interactively later (updated data, a
+#' script for colleagues, etc.) without repeating the manual review.
 #'
 #' @inheritParams bkg_classify
+#' @param titles \code{[list]}
+#'
+#' Named list overriding any subset of the default step titles shown in
+#' each rule's header during the session (\code{perfect},
+#' \code{semi_perfect}, \code{wrong_house_number}, \code{wrong_street}).
+#' Purely cosmetic -- shown only in this interactive header, never
+#' written anywhere or included in the reproducible
+#' \code{\link{bkg_classify}} call (which has no \code{titles} argument).
+#' Distinct from \code{labels}: a label is a short, code-friendly value
+#' that ends up in the \code{quality} column (e.g. good for later
+#' \code{dplyr::filter()}ing), while a title is a longer, human-readable
+#' phrase meant to be read once during review. Unspecified ones keep
+#' their default title.
 #' @param n_preview \code{[integer]} Number of rows to print per preview.
 #'
 #' @details Within each rule's preview, rows are sorted by
@@ -422,7 +451,7 @@ bkg_classify <- function(.data, thresholds = list(),
 #' @export
 bkg_classify_interactive <- function(.data, thresholds = list(),
                                      id_col = NULL, labels = list(),
-                                     n_preview = 10) {
+                                     titles = list(), n_preview = 10) {
   if (!.bkg_is_interactive()) {
     cli::cli_abort(paste(
       "{.fun bkg_classify_interactive} requires an interactive R",
@@ -442,6 +471,17 @@ bkg_classify_interactive <- function(.data, thresholds = list(),
   if (!is.null(id_col) && !id_col %in% names(.data)) {
     cli::cli_abort("{.arg id_col} ({.val {id_col}}) not found in {.arg .data}.")
   }
+  
+  default_titles <- .bkg_default_quality_titles()
+  unknown_titles <- setdiff(names(titles), names(default_titles))
+  if (length(unknown_titles)) {
+    valid_titles <- paste(names(default_titles), collapse = ", ")
+    cli::cli_abort(c(
+      "Unknown title name{?s}: {.val {unknown_titles}}.",
+      "i" = "Must be one of: {valid_titles}."
+    ))
+  }
+  step_titles <- utils::modifyList(default_titles, titles)
   
   default_labels <- .bkg_default_quality_labels()
   unknown_labels <- setdiff(names(labels), names(default_labels))
@@ -492,7 +532,9 @@ bkg_classify_interactive <- function(.data, thresholds = list(),
         caught <- caught[order(caught[[sort_spec$col]], decreasing = sort_spec$decreasing), , drop = FALSE]
       }
       
-      cli::cli_rule(left = sprintf("Step %d/%d: %s", rule_idx, n_rules, rule))
+      cli::cli_rule(left = sprintf(
+        "%d/%d. (Check) %s", rule_idx, n_rules, step_titles[[rule]]
+      ))
       cat(sprintf(
         "%d row(s), sorted by %s (%s)\n",
         nrow(caught), sort_spec$col,
@@ -673,4 +715,3 @@ bkg_quality_summary <- function(.data, ...) {
     pct = round(as.numeric(tbl) / sum(tbl) * 100, 1)
   )
 }
-
