@@ -2,9 +2,7 @@
 # address database: path resolution, low-level Parquet reads, and building /
 # updating the database from raw BKG data.
 
-# -----------------------------------------------------------------------------
-# Path resolution
-# -----------------------------------------------------------------------------
+# Path resolution ----
 
 #' Build glob paths into the partitioned local Parquet address database
 #'
@@ -56,14 +54,9 @@ bkg_db_path <- function() {
   tools::R_user_dir("bkggeocoder2", which = "data")
 }
 
-# -----------------------------------------------------------------------------
-# Version metadata (read/write)
-# -----------------------------------------------------------------------------
-# Stored as DCF ("Debian Control File", e.g. https://www.debian.org/doc/debian-policy/ch-controlfields.html)
-# -- the same key: value text format R itself uses for the DESCRIPTION file
-# -- rather than JSON, so no dependency (not even a Suggests one) is needed
-# just to persist half a dozen small metadata fields. read.dcf()/write.dcf()
-# are part of base R.
+# Version metadata (read/write) ----
+# Stored as DCF (the key: value format R uses for DESCRIPTION) rather than
+# JSON, so no extra dependency is needed for a handful of fields.
 
 #' @noRd
 write_version_metadata <- function(version, path) {
@@ -95,9 +88,7 @@ read_version_metadata <- function(path) {
 
 
 
-# -----------------------------------------------------------------------------
-# Building the database (internal worker)
-# -----------------------------------------------------------------------------
+# Building the database (internal worker) ----
 
 #' Build the BKG address database (internal worker)
 #'
@@ -182,10 +173,8 @@ bkg_build_database_impl <- function(
     threads = NULL
 ) {
   
-  # Auto-discover which state files are actually present, instead of
-  # hardcoding all 16 official state codes. This means the function works
-  # with partial data (e.g. a single state for testing) and never breaks
-  # just because a new/renamed state code shows up.
+  # Auto-discovers present state files instead of hardcoding all 16, so
+  # partial data (e.g. one state, for testing) works too.
   csv_files <- list.files(address_data_path, pattern = "^ga_.*\\.csv$")
   
   if (!length(csv_files)) {
@@ -210,9 +199,7 @@ bkg_build_database_impl <- function(
     force = TRUE
   )
   
-  # Removes a leftover bkg.duckdb from versions prior to the removal of the
-  # (unused) persistent DuckDB copy of the address data -- this package no
-  # longer writes one, but cleans up any stale file from an earlier build.
+  # Cleans up a stale bkg.duckdb from older builds -- no longer written.
   unlink(
     file.path(db_path, "bkg.duckdb"),
     force = TRUE
@@ -220,8 +207,7 @@ bkg_build_database_impl <- function(
   
   dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
   
-  # suppressMessages(): see the identical comment in bkg_geocode_offline.R
-  # -- duckdb::duckdb()'s one-time first-connection notice is unrelated to
+  # Suppresses duckdb's one-time first-connection notice; unrelated to
   # our own verbose= setting.
   con <- suppressMessages(DBI::dbConnect(duckdb::duckdb()))
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
@@ -234,15 +220,12 @@ bkg_build_database_impl <- function(
     DBI::dbExecute(con, sprintf("PRAGMA threads=%d", threads))
   }
   
-  # We never rely on the physical row order within a partition (reads
-  # further downstream always sort/rank explicitly via ORDER BY/QUALIFY),
-  # so there's nothing to lose by not preserving insertion order -- and it
-  # meaningfully lowers peak memory for the partitioned COPY below, which
-  # otherwise has to buffer more to guarantee an order nobody needs.
+  # Reads downstream always sort/rank explicitly (ORDER BY/QUALIFY), so
+  # preserving insertion order here is pure overhead -- disabling it
+  # lowers peak memory for the partitioned COPY below.
   DBI::dbExecute(con, "PRAGMA preserve_insertion_order=false")
   
-  # Written to directly, per state, inside the loop below -- see the
-  # comment above the loop for why.
+  # Written to directly, per state, in the loop below.
   ga_path <- normalizePath(
     file.path(db_path, "ga"),
     winslash = "/",
@@ -258,28 +241,20 @@ bkg_build_database_impl <- function(
   n_addresses <- 0L
   zip_places_list <- vector("list", length(laender_names))
   
-  # Each state is written directly to its own partitioned Parquet slice
-  # right after cleaning, instead of accumulating all 16 states into one
-  # big in-memory table and doing a single, monolithic COPY/partition step
-  # at the very end. Profiling showed that final COPY dominating total
-  # build time (~84%, after the place_slug fix below removed the previous
-  # bottleneck): partitioning the full multi-state dataset in one shot
-  # means shuffling/sorting tens of millions of rows at once, whereas doing
-  # it once per state (a much smaller chunk each time) is both lighter on
-  # peak memory and substantially faster in aggregate.
+  # Each state writes directly to its own partitioned Parquet slice,
+  # rather than accumulating all 16 into one table for a single final
+  # COPY: profiling showed that final COPY dominating build time (~84%)
+  # by shuffling/sorting tens of millions of rows at once, vs. one
+  # smaller chunk per state.
   for (idx in seq_along(laender_names)) {
     
     cli::cli_progress_update(id = pb, set = idx)
     
     i <- laender_names[[idx]]
     
-    # Only parse the columns actually used below (roughly half of the raw
-    # file's 25 columns). select= must stay an unnamed position vector here
-    # -- a NAMED select vector means something different in data.table
-    # (column = target type), which conflicts with colClasses=. col.names=
-    # sets the friendly V<n> names explicitly instead, so all downstream
-    # V<n> references keep working unchanged regardless of fread's own
-    # positional-naming defaults.
+    # Only the columns actually used below are parsed. select= must be an
+    # unnamed position vector (a named one means something different in
+    # data.table); col.names= restores the friendly V<n> names.
     selected_cols <- c(3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 19, 20)
     
     tmp <- data.table::fread(
@@ -291,13 +266,9 @@ bkg_build_database_impl <- function(
       col.names = paste0("V", selected_cols)
     )
     
-    # Drop records with a "katasterinterne Hausnummer" (V3 == "C"), which is
-    # explicitly NOT an official house number per the BKG field
-    # documentation ("Qualitaet der georeferenzierten Gebaeudeadresse") --
-    # its "house number" is actually an internal cadastre identifier
-    # (typically long, purely numeric strings) and would corrupt address
-    # matching. Kept: "A" (official, in building), "B" (official, in
-    # parcel), "P" (Deutsche Post coordinate).
+    # Drops "katasterinterne Hausnummer" (V3 == "C") records -- not an
+    # official house number, but an internal cadastre ID that would
+    # corrupt address matching. Kept: "A", "B" (official), "P" (Post).
     n_before <- nrow(tmp)
     tmp <- tmp[V3 %in% c("A", "B", "P")]
     n_dropped <- n_dropped + (n_before - nrow(tmp))
@@ -323,11 +294,9 @@ bkg_build_database_impl <- function(
       )
     ]
     
-    # street and place_add are cleaned via the same dedup-then-join pattern
-    # as place_slug above: both repeat heavily across rows (a street repeats
-    # once per house number on it, a place_add roughly as often as its
-    # place), so cleaning every distinct value once instead of re-running
-    # the same gsub()s on every row avoids redundant regex work.
+    # street and place_add are cleaned via dedup-then-join: both repeat
+    # heavily across rows, so cleaning each distinct value once avoids
+    # redundant regex work.
     street_lookup <- data.table::data.table(street_raw = unique(tmp$street_raw))
     street_lookup[, street := gsub(" \\(.*\\)\\b", "", street_raw)]
     street_lookup[
@@ -375,32 +344,24 @@ bkg_build_database_impl <- function(
       )
     ]
     
-    # normalize_file() involves an expensive transliteration
-    # (stringi::stri_trans_general()) that profiling showed dominates the
-    # entire build (~42% of total time) when applied per row -- Germany has
-    # ~11,000 distinct places but millions of address rows, so the same
-    # place name was being transliterated tens of thousands of times over.
-    # Compute it once per distinct place instead and join the result back.
+    # normalize_file()'s transliteration dominated build time (~42%) when
+    # applied per row -- ~11,000 distinct places vs. millions of address
+    # rows. Computed once per distinct place instead, then joined back.
     place_lookup <- data.table::data.table(place = unique(tmp$place))
     place_lookup[, place_slug := normalize_file(place)]
     tmp[place_lookup, place_slug := i.place_slug, on = "place"]
     
     n_addresses <- n_addresses + nrow(tmp)
     
-    # Collected once per state (a tiny slice of the full data) instead of
-    # querying it back out of one big combined table at the end.
+    # Collected once per state, rather than re-querying it from one big
+    # combined table at the end.
     zip_places_list[[idx]] <- unique(
       tmp[, .(place, place_add, zip_code, place_slug)]
     )
     
-    # Reverted from arrow::write_dataset(): profiling showed it getting
-    # progressively (and eventually unusably) slower across states, almost
-    # certainly because it re-scans/re-opens the existing target dataset on
-    # every call -- costly once thousands of place_slug partition folders
-    # have already accumulated from earlier states. DuckDB's per-state
-    # register+COPY doesn't have this problem, since each call is scoped to
-    # a fresh, unrelated temporary view rather than the growing dataset on
-    # disk.
+    # Not arrow::write_dataset(): it got progressively slower across
+    # states (re-scans the growing target dataset on every call). Each
+    # register+COPY here is scoped to a fresh, unrelated temp view instead.
     view_name <- paste0("tmp_state_", sample.int(1e9, 1))
     duckdb::duckdb_register(con, view_name, tmp)
     
@@ -439,9 +400,7 @@ bkg_build_database_impl <- function(
     ))
   }
   
-  # --------------------------------------------------
-  # ZIP-Lookup
-  # --------------------------------------------------
+# ZIP-Lookup ----
   
   cli::cli_alert_info("Writing ZIP lookup")
   
@@ -464,9 +423,7 @@ bkg_build_database_impl <- function(
     compression = "snappy"
   )
   
-  # --------------------------------------------------
-  # Version / Metadaten
-  # --------------------------------------------------
+  # Version / Metadaten ----
   
   cli::cli_alert_info("Writing metadata")
   
@@ -489,9 +446,7 @@ bkg_build_database_impl <- function(
 }
 
 
-# -----------------------------------------------------------------------------
-# Building / updating the database (public entry point)
-# -----------------------------------------------------------------------------
+# Building / updating the database (public entry point) ----
 
 #' Build or update the local BKG address database
 #'

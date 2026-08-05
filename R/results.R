@@ -1,9 +1,7 @@
 # Everything related to consuming / presenting a GeocodingResults object:
 # S3 methods (print, summary, plot) and exporting results to disk.
 
-# -----------------------------------------------------------------------------
-# S3 methods
-# -----------------------------------------------------------------------------
+# S3 methods ----
 
 #' Print geocoding results
 #'
@@ -182,9 +180,7 @@ bkg_show_address_detail <- function(.data, id_col = NULL) {
 }
 
 
-# -----------------------------------------------------------------------------
-# Exporting results
-# -----------------------------------------------------------------------------
+# Exporting results ----
 
 #' Export geocoding results
 #'

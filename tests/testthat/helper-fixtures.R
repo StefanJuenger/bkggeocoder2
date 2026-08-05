@@ -1,9 +1,6 @@
-# ------------------------------------------------------------------------
-# Shared fixture: a small, synthetic GeocodingResults object. These tests
-# don't need a real local database -- the S3 methods and the exporter only
-# care about the object's columns, attributes, and class, not about how it
-# was produced.
-# ------------------------------------------------------------------------
+# Synthetic GeocodingResults fixture ----
+# No real database needed: S3 methods/exporter only care about columns,
+# attributes, and class.
 
 make_fake_results <- function(
     scores = c(0.95, 0.72, NA),
@@ -46,14 +43,10 @@ make_fake_results <- function(
   )
 }
 
-# ------------------------------------------------------------------------
-# Shared fixture: a small, synthetic, already-scored result set for
-# bkg_classify()/bkg_classify_interactive()/bkg_quality_summary()/
-# bkg_show_address_detail(). Unlike make_fake_results() above, these
-# functions only ever look at the score columns (and, for exclude_ids/
-# id_col, an identifier column) -- no sf geometry or GeocodingResults
-# class required, so a plain tibble is enough.
-# ------------------------------------------------------------------------
+# Synthetic scored-results fixture ----
+# For bkg_classify()/bkg_classify_interactive()/bkg_quality_summary()/
+# bkg_show_address_detail() -- only score columns matter, no sf/
+# GeocodingResults class needed, so a plain tibble is enough.
 
 make_scored_results <- function(
     id = NULL,

@@ -9,13 +9,10 @@
 ## usethis namespace: end
 NULL
 
-# data.table's non-standard evaluation (bkg_build_database_impl() in
-# bkg_database.R) references column names as bare symbols inside `tmp[...]`
-# expressions, which R CMD check's static analysis can't tell apart from
-# genuine undefined global variables. This is the standard, documented way
-# to silence those "no visible binding" NOTEs for a data.table-based
-# package (see `?data.table::.SD` and the data.table "importing data.table"
-# vignette).
+# data.table's NSE (bare column-name symbols inside `tmp[...]` in
+# bkg_build_database_impl()) look like undefined globals to R CMD
+# check's static analysis; this is the standard way to silence those
+# NOTEs (see ?data.table::.SD).
 utils::globalVariables(c(
   ".", ".SD", "RS", "V3", "V11", "V12", "V13", "V14", "V15", "V16", "V19", "V20",
   "house_number", "house_number_add", "house_number_full",
@@ -25,9 +22,7 @@ utils::globalVariables(c(
 ))
 
 
-# -----------------------------------------------------------------------------
-# Package data
-# -----------------------------------------------------------------------------
+# Package data ----
 
 #' Address data of community center addresses
 #'

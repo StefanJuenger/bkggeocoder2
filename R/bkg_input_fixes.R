@@ -1,13 +1,8 @@
-# Built-in and user-extensible input-cleaning fixes, applied to raw address
-# components before matching (see bkg_match_places_ddb()/bkg_match_addresses_ddb()
-# in bkg_matching.R, which call apply_input_fixes()). Split out from
-# bkg_matching.R because this registry (bkg_add_input_fix(), bkg_fix_remove()/
-# bkg_fix_replace()/bkg_fix_trim(), the built-in fixes themselves) has no
-# dependency on the DuckDB matching engine -- only the reverse.
+# Input-cleaning fixes applied to raw address components before matching
+# (see apply_input_fixes(), called from bkg_matching.R). Split out since
+# this registry has no dependency on the DuckDB matching engine.
 
-# -----------------------------------------------------------------------------
-# Shared R-side input normalization helpers
-# -----------------------------------------------------------------------------
+# Shared R-side input normalization helpers ----
 
 #' Strip formatting noise from a raw house number input
 #'
@@ -124,17 +119,10 @@ collapse_house_number_range <- function(x) {
   )
 }
 
-# -----------------------------------------------------------------------------
-# User-extensible input-fix registry
-# -----------------------------------------------------------------------------
-# The built-in fixes above (expand_street_abbreviation(),
-# expand_street_abbreviation_broad(), strip_place_suffix(),
-# clean_house_number_input(), collapse_house_number_range()) cover the cases
-# seen so far, but real-world address data always has more quirks than any
-# fixed set of regexes can anticipate. This registry lets users layer their
-# own cleaning functions on top -- per address component, run in registration
-# order AFTER the built-in fixes -- without having to fork or monkey-patch
-# the matching internals themselves.
+# User-extensible input-fix registry ----
+# The built-in fixes above cover known cases; this registry lets users
+# layer their own cleaning functions on top, per component, without
+# forking or monkey-patching the matching internals.
 
 .bkg_default_input_fixes <- function() {
   list(

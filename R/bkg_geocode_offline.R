@@ -163,12 +163,8 @@ bkg_geocode_offline <- function(
   .data <- cbind(data.frame(.iid = as.numeric(row.names(.data))), .data)
   
   # Matching ----
-  # suppressMessages(): duckdb::duckdb() prints a one-time notice on the
-  # first connection in a fresh R session about where it stores
-  # downloaded extensions/secrets (only relevant if using those duckdb
-  # features, which this package doesn't) -- unrelated to our own
-  # verbose= setting, but verbose = FALSE should mean truly silent
-  # regardless of which layer would otherwise print something.
+  # Suppresses duckdb's one-time first-connection notice; unrelated to
+  # our own verbose= setting.
   con <- suppressMessages(DBI::dbConnect(duckdb::duckdb()))
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
   
@@ -228,11 +224,8 @@ bkg_geocode_offline <- function(
   }
   
   if (isTRUE(join_with_original)) {
-    # suffixes handles the rare edge case where one of the user's own extra
-    # columns (outside cols) happens to collide with an internal output
-    # name (e.g. a column literally called "score" or "RS"); it does
-    # nothing in the common case, since cleaned_data's own "_input"/"_output"
-    # columns never share a name with .data's raw columns to begin with.
+    # suffixes handles the rare case of a user column colliding with an
+    # internal output name (e.g. a column literally called "score").
     cleaned_data <- merge(
       .data,
       cleaned_data,

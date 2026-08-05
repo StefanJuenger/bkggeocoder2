@@ -4,14 +4,10 @@
 # no dependency on the print/summary/plot/export methods there -- it only
 # needs the score columns bkg_geocode_offline() produces.
 
-# -----------------------------------------------------------------------------
-# Quality triage
-# -----------------------------------------------------------------------------
-# Systematizes a common manual workflow: bucketing rows by their component
-# scores into confidence tiers ("perfect", "semi_perfect",
-# "wrong_house_number", "wrong_street", "wrong_place", "unmatched") to focus
-# manual review on the rows that actually need it, instead of eyeballing
-# every row.
+# Quality triage ----
+# Systematizes a manual workflow: bucketing rows by their component
+# scores into confidence tiers, to focus manual review where it's
+# actually needed instead of eyeballing every row.
 
 #' Default score thresholds for \code{\link{bkg_classify}}
 #'
@@ -30,9 +26,7 @@
 }
 
 # The four cascading rules, in order. Shared by bkg_classify() and
-# bkg_classify_interactive() so the two can never drift apart --
-# the interactive session is a preview loop around exactly the same masks
-# the batch function commits directly.
+# bkg_classify_interactive() so the two can never drift apart.
 .bkg_quality_rules <- function() {
   c("perfect", "semi_perfect", "wrong_house_number", "wrong_street")
 }
@@ -53,17 +47,11 @@
   .data[new_order]
 }
 
-# Default output labels, keyed by internal rule name (plus "rest" and
-# "unmatched", which aren't rules but always-possible outcomes). Rule
-# names are fixed internal identifiers (used to look up thresholds and
-# exclude_ids); labels are what actually shows up in the quality column,
-# and can be freely renamed via the labels argument without touching any
-# rule logic. "rest" defaults to "wrong_place" rather than a plain "rest"
-# because, by construction, a row can only end up there if place_score
-# fell short of semi_place -- every row that clears that bar is already
-# caught by wrong_street (whose only condition is place_score itself) if
-# nothing more specific matched first. So "rest" is, in the default case,
-# specifically a place-match problem, which the label should say.
+# Output labels, keyed by internal rule name (plus "rest"/"unmatched",
+# always-possible outcomes that aren't rules). Freely renamable via the
+# labels argument. "rest" defaults to "wrong_place": by construction it
+# only catches place_score below semi_place, since wrong_street already
+# catches everything above.
 .bkg_default_quality_labels <- function() {
   list(
     perfect = "perfect",
@@ -75,14 +63,11 @@
   )
 }
 
-# Human-readable step titles shown in bkg_classify_interactive()'s header
-# (see .bkg_quality_rules()) -- deliberately a THIRD, separate concept from
-# both the internal rule name (used to look up thresholds/exclude_ids) and
-# the quality-column label (.bkg_default_quality_labels(), what ends up in
-# the data): a good column value ("semi_perfect") is short and
-# code-friendly for later filtering, but reads as internal jargon in a
-# header meant for a human to skim during review, where a longer,
-# descriptive phrase is more useful.
+# Human-readable step titles for bkg_classify_interactive()'s header --
+# a third concept, separate from the rule name (thresholds/exclude_ids
+# lookup) and the label (quality column): a short value like
+# "semi_perfect" is code-friendly for filtering but reads as jargon in a
+# header meant to be skimmed once.
 .bkg_default_quality_titles <- function() {
   list(
     perfect = "Perfect matches",
@@ -192,12 +177,9 @@
   call_args <- list(.data = quote(.data))
   call_args$thresholds <- th
   call_args$exclude_ids <- lapply(exclude_ids, as.character)
-  # A literal R NULL, if inserted directly as a list element's value,
-  # gets silently dropped when as.call() below turns this into a
-  # pairlist (a well-known R quirk: NULL list elements vanish on
-  # conversion to pairlists/calls) -- quote(NULL) preserves it as the
-  # *language object* representing the symbol NULL, so id_col = NULL
-  # still shows up in the deparsed call when no id_col was given.
+  # quote(NULL), not a literal NULL: NULL list elements are silently
+  # dropped when as.call() converts this to a pairlist, which would make
+  # id_col = NULL vanish from the deparsed call instead of showing it.
   call_args$id_col <- if (is.null(id_col)) quote(NULL) else id_col
   call_args$labels <- labels
   
@@ -328,13 +310,9 @@ bkg_classify <- function(.data, thresholds = list(),
   default_labels <- .bkg_default_quality_labels()
   unknown_labels <- setdiff(names(labels), names(default_labels))
   if (length(unknown_labels)) {
-    # The "valid names" list is pre-collapsed into a single string before
-    # The message uses c(...) (separate bullets), not paste() (one
-    # combined string): paste() would merge both lines into a SINGLE glue
-    # block, so {?s} in line 1 would still "see" the {valid_labels}
-    # interpolation in line 2 and cli can't tell which one is "the"
-    # pluralization quantity ("Multiple quantities for pluralization").
-    # Each element of a c(...) vector is evaluated by cli independently.
+    # c(...) bullets, not paste(): paste() merges both lines into one
+    # glue block, making {?s} ambiguous about which interpolated
+    # collection is "the" pluralization quantity.
     valid_labels <- paste(names(default_labels), collapse = ", ")
     cli::cli_abort(c(
       "Unknown label name{?s}: {.val {unknown_labels}}.",
@@ -348,12 +326,9 @@ bkg_classify <- function(.data, thresholds = list(),
     }
     unknown_rules <- setdiff(names(exclude_ids), .bkg_quality_rules())
     if (length(unknown_rules)) {
-      # Same c(...)-instead-of-paste() fix as above, plus: a dot-prefixed
-      # function call directly inside {} (.bkg_quality_rules()) trips up
-      # cli's own syntax -- a leading dot inside {} is interpreted as a
-      # style directive, not as R code, regardless of parentheses.
-      # Pre-computing into a plain-named local variable avoids both issues
-      # at once.
+      # Same c(...) fix as above, plus: a dot-prefixed call directly
+      # inside {} trips up cli's syntax (a leading dot means style
+      # directive, not R code) -- a plain local variable avoids both.
       valid_rules <- paste(.bkg_quality_rules(), collapse = ", ")
       cli::cli_abort(c(
         "Unknown rule name{?s} in {.arg exclude_ids}: {.val {unknown_rules}}.",
@@ -544,11 +519,8 @@ bkg_classify_interactive <- function(.data, thresholds = list(),
       if (nrow(caught)) {
         preview <- caught[seq_len(min(n_preview, nrow(caught))), display_cols]
         if (inherits(preview, "sf")) preview <- sf::st_drop_geometry(preview)
-        # Subsetting a GeocodingResults object with `[` keeps its class,
-        # which would otherwise make print() dispatch to
-        # print.GeocodingResults() (the package's own summary-style
-        # display) instead of a plain row table -- strip it first, same
-        # as print.GeocodingResults() does internally for its own preview.
+        # Strip the class so print() doesn't dispatch to
+        # print.GeocodingResults() instead of a plain row table.
         class(preview) <- setdiff(class(preview), "GeocodingResults")
         if (inherits(preview, "tbl")) {
           print(preview, n = n_preview)
@@ -668,15 +640,9 @@ bkg_classify_interactive <- function(.data, thresholds = list(),
   cli::cli_h2("Reproducible code")
   cat("\n", code, "\n\n", sep = "")
   
-  # Returned invisibly: this can be a very large object (thousands of
-  # rows), and if the call isn't assigned to a variable, R's normal
-  # auto-print would otherwise dump the whole thing right after the
-  # reproducible-code block above, burying the one thing you actually
-  # need to copy. Assign the result (e.g. `gc2 <- bkg_classify_interactive(...)`)
-  # to keep working with it. Deliberately just `.data` -- the exact
-  # object bkg_geocode_offline() returned, plus the quality column --
-  # with no extra attributes tacked on; the reproducible call is only
-  # ever shown via cat() above, never smuggled onto the object itself.
+  # Invisible: an unassigned call would otherwise auto-print the whole
+  # (possibly huge) object right after the code above. Just `.data` plus
+  # the quality column -- no extra attributes.
   invisible(.data)
 }
 
@@ -715,3 +681,4 @@ bkg_quality_summary <- function(.data, ...) {
     pct = round(as.numeric(tbl) / sum(tbl) * 100, 1)
   )
 }
+

@@ -57,9 +57,7 @@ combine_house_number <- function(house_number, house_number_add) {
 }
 
 
-# -----------------------------------------------------------------------------
-# Geospatial helpers
-# -----------------------------------------------------------------------------
+# Geospatial helpers ----
 
 #' Create 1km and 100m INSPIRE IDs
 #'

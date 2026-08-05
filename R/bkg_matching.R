@@ -2,13 +2,9 @@
 # bkg_geocode_offline.R): place matching -> address matching -> result
 # cleaning. None of these functions are meant to be called independently.
 
-# -----------------------------------------------------------------------------
-# Shared SQL string normalization helpers
-# -----------------------------------------------------------------------------
-# Both matching steps below normalize strings inside DuckDB SQL rather than
-# in R, so that reference (Parquet) and input data are always normalized by
-# the exact same logic -- comparing anything else would silently bias the
-# similarity scores.
+# Shared SQL string normalization helpers ----
+# Normalized inside DuckDB SQL rather than in R, so reference (Parquet)
+# and input data always go through the exact same logic.
 
 # German-specific transliteration (mirrors the historical dyn_comparator()
 # approach): umlaut expansion + accent stripping + lowercasing. No
@@ -44,9 +40,7 @@ nk_street <- function(expr) {
   sprintf("regexp_replace(%s, '[^a-z0-9]', '', 'g')", reduced)
 }
 
-# -----------------------------------------------------------------------------
-# Step 1: place matching (DuckDB)
-# -----------------------------------------------------------------------------
+# Step 1: place matching (DuckDB) ----
 
 #' Match data's places and zip codes against the local database (DuckDB)
 #'
@@ -63,26 +57,19 @@ bkg_match_places_ddb <- function(
   place <- ifelse(length(cols) == 4, cols[4], cols[3])
   zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
   
-  # ---------------------------
-  # Prepare input
-  # ---------------------------
+  # Prepare input ----
   
   .data[, zip_code] <- vapply(.data[, zip_code], function(zip) {
     zip <- as.character(zip)
     if (nchar(zip) == 4) paste0("0", zip) else zip
   }, FUN.VALUE = character(1))
   
-  # Matching-key only, applied locally (like the Mannheim fix in
-  # bkg_match_addresses_ddb) rather than centrally upstream -- built-in +
-  # user-added fixes (see bkg_add_input_fix()) never touch the original
-  # place/zip_code columns themselves, which stay available unmodified for
-  # display further downstream.
+  # Matching-key only, applied locally (like Mannheim in
+  # bkg_match_addresses_ddb) -- fixes never touch the displayed columns.
   .data$place_match_key <- apply_input_fixes(.data[[place]], "place")
   
-  # Zip codes get the same treatment: a dedicated matching key, always
-  # computed AFTER the leading-zero padding above (so padding can't
-  # accidentally be skipped by a registered fix), never overwriting the
-  # displayed zip_code column itself.
+  # Computed AFTER the leading-zero padding above, so a registered fix
+  # can't accidentally skip it.
   .data$zip_match_key <- apply_input_fixes(.data[, zip_code], "zip_code")
   
   if (isTRUE(verbose)) {
@@ -92,14 +79,10 @@ bkg_match_places_ddb <- function(
     cli::cli_progress_step("Matching places via DuckDB...")
   }
   
-  # ---------------------------
-  # Register input, reference lookup table lazily
-  # ---------------------------
-  # Unlike earlier versions of this package, the ZIP/place lookup table is
-  # never pulled into R -- it is referenced directly via read_parquet() and
-  # normalized in SQL, exactly like the address matching step below. This
-  # also guarantees that both sides of the comparison are normalized by the
-  # exact same logic (see nk_plain()).
+  # Register input, reference lookup table lazily ----
+  # The ZIP/place lookup table is never pulled into R -- referenced
+  # directly via read_parquet() and normalized in SQL, so both sides of
+  # the comparison go through the same logic (see nk_plain()).
   
   zip_places_path <- file.path(db_path, "zip_places", "ga_zip_places.parquet")
   
@@ -110,21 +93,13 @@ bkg_match_places_ddb <- function(
     add = TRUE
   )
   
-  # ---------------------------
-  # SQL MATCHING (reclin2-like scoring)
-  # ---------------------------
+  # SQL matching (reclin2-like scoring) ----
   
-  # Zip codes are blocked on their first 3 digits (the "Postleitregion")
-  # rather than joined on exact equality. A single-digit typo in the zip
-  # code (e.g. a transposition like "14872" vs. the correct "14827") would
-  # otherwise produce zero join candidates for that row -- and since the
-  # place-name comparison further down only ever runs on whatever the join
-  # already produced, a wrong zip code silently means the address is
-  # unmatched, no matter how well the place name itself matches. Blocking
-  # on the prefix keeps the candidate set small (a few dozen to a few
-  # hundred places per block, still trivial for jaro_winkler_similarity),
-  # while letting the exact zip code itself be scored fuzzily alongside the
-  # place name instead of acting as a hard filter.
+  # Zip codes are blocked on their first 3 digits rather than joined on
+  # exact equality, so a single-digit typo doesn't produce zero
+  # candidates. Blocking keeps the candidate set small (still trivial for
+  # jaro_winkler_similarity) while scoring the exact zip fuzzily
+  # alongside the place name instead of using it as a hard filter.
   sql <- sprintf("
     WITH ref AS (
       SELECT
@@ -152,11 +127,9 @@ bkg_match_places_ddb <- function(
         ref.place_slug,
         -- Ort similarity: both sides normalized identically via nk_plain()
         jaro_winkler_similarity(input.place_simple, ref.place_simple) AS place_score,
-        -- PLZ similarity: fuzzy instead of exact, so a single-digit typo
-        -- (e.g. a transposition) is penalized rather than filtered out
-        -- entirely. Uses zip_match_key (post input fixes), not the raw
-        -- zip_code column, so a registered zip_code fix actually affects
-        -- matching.
+        -- PLZ similarity: fuzzy, not exact, so a single-digit typo is
+        -- penalized rather than filtered out. Uses zip_match_key (post
+        -- input fixes), not the raw column.
         jaro_winkler_similarity(input.zip_match_key, ref.zip_code) AS zip_score,
         -- kombinierter Score (multiplikativ stabiler)
         (
@@ -173,20 +146,13 @@ bkg_match_places_ddb <- function(
     QUALIFY ROW_NUMBER() OVER (
       PARTITION BY \".iid\"
       ORDER BY
-        -- An EXACT zip match (zip_score = 1.0, since jaro_winkler of
-        -- identical strings is exactly 1) with at least a plausible
-        -- place-name score always wins over ANY fuzzy (non-exact-zip)
-        -- candidate, regardless of how the raw multiplicative
-        -- total_score compares. Without this, jaro_winkler_similarity
-        -- between two zip codes that merely share the same 3-digit block
-        -- is already ~0.8-0.92 (barely below 1.0), which isn't enough of
-        -- a gap to reliably protect a correct-but-imperfectly-matched
-        -- place (e.g. one needing its Ortsteil suffix) against a
-        -- same-block, different-zip place that happens to string-match
-        -- the input slightly better. Fuzzy zip candidates only get to
-        -- compete at all when no exact-zip candidate clears this loose
-        -- 0.6 safety bar (i.e. an actual zip-code typo, not just an
-        -- imperfect place name).
+        -- An exact zip match (zip_score = 1.0) with a plausible place
+        -- score (>= 0.6) always wins over a fuzzy-zip candidate,
+        -- regardless of total_score: same-block zip codes alone already
+        -- score ~0.8-0.92 via jaro_winkler, too close to 1.0 to reliably
+        -- protect a correct-but-imperfect place match otherwise. Fuzzy
+        -- candidates only compete when no exact-zip candidate clears
+        -- this bar (i.e. an actual zip-code typo).
         (zip_score >= 0.999 AND place_score >= 0.6) DESC,
         total_score DESC,
         place_matched
@@ -200,9 +166,7 @@ bkg_match_places_ddb <- function(
   
   matched <- DBI::dbGetQuery(con, sql)
   
-  # ---------------------------
-  # Merge back
-  # ---------------------------
+  # Merge back ----
   
   result <- merge(
     .data,
@@ -233,9 +197,7 @@ bkg_match_places_ddb <- function(
 }
 
 
-# -----------------------------------------------------------------------------
-# Step 2: address matching (DuckDB)
-# -----------------------------------------------------------------------------
+# Step 2: address matching (DuckDB) ----
 
 #' Match addresses against the local BKG database (DuckDB)
 #'
@@ -268,12 +230,9 @@ bkg_match_addresses_ddb <- function(
   zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
   place <- ifelse(length(cols) == 4, cols[4], cols[3])
   
-  # Nothing to match (e.g. every address failed place-matching already) --
-  # bail out before touching DuckDB. Without this guard, building an empty
-  # parquet path list below would produce invalid SQL, and several paste0()
-  # calls further down would silently misbehave on zero-row input (paste0()
-  # treats a zero-length vector as a single "" element when recycling
-  # unless recycle0 = TRUE, so the result would end up length 1, not 0).
+  # Nothing to match (e.g. every address failed place-matching) -- bail
+  # out before an empty parquet-path list produces invalid SQL, and
+  # paste0() silently misbehaves on zero-row input.
   if (!nrow(matched_data)) {
     empty <- data.frame(
       .iid = matched_data$.iid,
@@ -322,9 +281,7 @@ bkg_match_addresses_ddb <- function(
   matched_data$street_raw <- trimws(matched_data[[street]])
   
   # Fix Mannheim square addresses (matching-key only), then apply
-  # registered input fixes (built-in + user-added via
-  # bkg_add_input_fix()) locally, right where the matching key is
-  # actually used -- mirrors the same pattern as the zip_code/place fixes
+  # registered input fixes locally -- mirrors the zip_code/place fixes
   # in bkg_match_places_ddb().
   street_for_matching <- gsub(
     "^([A-Z])([1-9])$", "\\1 \\2",
@@ -351,12 +308,9 @@ bkg_match_addresses_ddb <- function(
     matched_data$hn_input <- NA_character_
   }
   
-  # Matching-key only, applied locally. Comparing the full, uncleaned
-  # range string via jaro_winkler instead can match an unrelated house
-  # number that happens to share many characters with the range string
-  # (e.g. "13-15" is closer to "135" than to "13" in pure
-  # character-overlap terms), which is why the registry's default
-  # collapse_house_number_range() fix matters here.
+  # Matching-key only. Comparing the raw range string via jaro_winkler
+  # can match an unrelated house number sharing characters with the
+  # range (e.g. "13-15" vs "135"), hence collapse_house_number_range().
   matched_data$hn_input_key <- apply_input_fixes(matched_data$hn_input, "house_number")
   
   # Build parquet paths for relevant places only ----
@@ -570,9 +524,7 @@ bkg_match_addresses_ddb <- function(
 }
 
 
-# -----------------------------------------------------------------------------
-# Step 3: cleaning up the matched result
-# -----------------------------------------------------------------------------
+# Step 3: cleaning up the matched result ----
 
 bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) {
   street <- cols[1]
@@ -621,13 +573,10 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     },
     zip_code_input = messy_data[[paste0(zip_code, "_input")]],
     place_input = messy_data[[paste0(place, "_input")]],
-    # The value actually used for matching, i.e. address_input after any
-    # built-in and/or user-registered input fixes (see
-    # bkg_add_input_fix()) -- distinct from BOTH address_input (fully
-    # raw) and address_output (the matched database record). Seeing this
-    # separately is what makes a fix bug (e.g. one that silently strips a
-    # house-number suffix) visible at all, instead of it only showing up
-    # as an unexpectedly high/low score.
+    # The value actually used for matching, after any input fixes --
+    # distinct from BOTH address_input (raw) and address_output (the
+    # match). Makes a fix bug visible directly, not just as an
+    # unexplained score change.
     address_cleaned = paste(
       messy_data[[paste0(street, "_cleaned")]],
       if (house_number != "") messy_data[[paste0(house_number, "_cleaned")]],
@@ -641,11 +590,8 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     },
     zip_code_cleaned = messy_data[[paste0(zip_code, "_cleaned")]],
     place_cleaned = messy_data[[paste0(place, "_cleaned")]],
-    # trimws() here handles a database-side artifact: place_add becomes an
-    # empty string (not NA) wherever the raw BKG data says "Ortsteil
-    # unbekannt", so whole_address_add ends in a trailing space for those
-    # rows. Fixed here rather than at build time, so it doesn't require a
-    # database rebuild.
+    # trimws(): place_add is "" (not NA) when the raw data says "Ortsteil
+    # unbekannt", leaving a trailing space in whole_address_add.
     address_output = trimws(messy_data$whole_address_add),
     street_output = messy_data[[paste0(street, "_output")]],
     house_number_output = if (house_number != "") {
@@ -669,12 +615,9 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     source = "\u00a9 GeoBasis-DE / BKG, Deutsche Post Direkt GmbH, Statistisches Bundesamt, Wiesbaden (2025)"
   )
   
-  # sf::st_as_sf() internally computes min()/max() over the coordinate
-  # columns for the bounding box, which triggers R's harmless "no
-  # non-missing arguments to min/max" warning when clean_data has zero rows
-  # (e.g. every address failed to place-match). The result is still a
-  # correct, valid empty sf object -- only this specific, known warning is
-  # suppressed, not warnings in general.
+  # Suppresses sf::st_as_sf()'s harmless "no non-missing arguments to
+  # min/max" warning on zero-row input (e.g. nothing place-matched) --
+  # the result is still a valid empty sf object.
   clean_data <- withCallingHandlers(
     sf::st_as_sf(
       clean_data,
