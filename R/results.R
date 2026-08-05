@@ -554,6 +554,19 @@ bkg_classify <- function(.data, thresholds = list(),
   .bkg_insert_quality_column(.data, quality)
 }
 
+#' Thin wrapper around interactive()
+#'
+#' @description Exists purely so tests can reliably mock this check via
+#' \code{local_mocked_bindings()} -- \code{base}'s namespace is locked,
+#' which can make directly mocking \code{base::interactive()} unreliable,
+#' whereas mocking a binding within this package's own (unlocked)
+#' namespace always works.
+#'
+#' @noRd
+.bkg_is_interactive <- function() {
+  interactive()
+}
+
 #' Interactively classify offline geocoding results by quality
 #'
 #' @description Walks through the same rules as
@@ -583,19 +596,6 @@ bkg_classify <- function(.data, thresholds = list(),
 #' \code{\link{bkg_classify}} call is printed to the console at
 #' the end of the session, not attached to the returned object.
 #'
-#' Thin wrapper around interactive()
-#'
-#' @description Exists purely so tests can reliably mock this check via
-#' \code{local_mocked_bindings()} -- \code{base}'s namespace is locked,
-#' which can make directly mocking \code{base::interactive()} unreliable,
-#' whereas mocking a binding within this package's own (unlocked)
-#' namespace always works.
-#'
-#' @noRd
-.bkg_is_interactive <- function() {
-  interactive()
-}
-
 #' @seealso \code{\link{bkg_classify}}
 #'
 #' @export
