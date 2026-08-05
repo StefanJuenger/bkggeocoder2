@@ -220,7 +220,10 @@ bkg_build_database_impl <- function(
   
   dir.create(db_path, recursive = TRUE, showWarnings = FALSE)
   
-  con <- DBI::dbConnect(duckdb::duckdb())
+  # suppressMessages(): see the identical comment in bkg_geocode_offline.R
+  # -- duckdb::duckdb()'s one-time first-connection notice is unrelated to
+  # our own verbose= setting.
+  con <- suppressMessages(DBI::dbConnect(duckdb::duckdb()))
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
   
   if (!is.null(memory_limit)) {

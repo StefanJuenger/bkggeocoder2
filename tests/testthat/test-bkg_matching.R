@@ -1,5 +1,10 @@
 local_duckdb_con <- function(envir = parent.frame()) {
-  con <- DBI::dbConnect(duckdb::duckdb())
+  # suppressMessages(): duckdb::duckdb() prints a one-time notice on the
+  # first connection in a fresh R session (see the same fix in
+  # bkg_geocode_offline.R/bkg_database.R) -- suppressed here too so it
+  # can't unexpectedly surface during some other test's output-checking
+  # assertion, depending on test execution order.
+  con <- suppressMessages(DBI::dbConnect(duckdb::duckdb()))
   withr::defer(DBI::dbDisconnect(con, shutdown = TRUE), envir = envir)
   con
 }

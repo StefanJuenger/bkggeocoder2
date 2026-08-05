@@ -163,7 +163,13 @@ bkg_geocode_offline <- function(
   .data <- cbind(data.frame(.iid = as.numeric(row.names(.data))), .data)
   
   # Matching ----
-  con <- DBI::dbConnect(duckdb::duckdb())
+  # suppressMessages(): duckdb::duckdb() prints a one-time notice on the
+  # first connection in a fresh R session about where it stores
+  # downloaded extensions/secrets (only relevant if using those duckdb
+  # features, which this package doesn't) -- unrelated to our own
+  # verbose= setting, but verbose = FALSE should mean truly silent
+  # regardless of which layer would otherwise print something.
+  con <- suppressMessages(DBI::dbConnect(duckdb::duckdb()))
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
   
   place_result <- bkg_match_places_ddb(
