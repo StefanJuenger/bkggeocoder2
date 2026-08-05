@@ -14,7 +14,7 @@ bkg_classify_interactive(
 }
 \arguments{
 \item{.data}{\code{[GeocodingResults]} Output of
-\code{\link{bkg_geocode_offline}} or \code{\link{bkg_geocode}}.}
+\code{\link{bkg_geocode_offline}}.}
 
 \item{thresholds}{\code{[list]}
 
@@ -41,7 +41,7 @@ label.}
 }
 \value{
 \code{.data} -- the same object \code{\link{bkg_geocode_offline}}
-(or \code{\link{bkg_geocode}}) returned, with an added \code{quality}
+returned, with an added \code{quality}
 column, and nothing else changed. The reproducible
 \code{\link{bkg_classify}} call is printed to the console at
 the end of the session, not attached to the returned object.

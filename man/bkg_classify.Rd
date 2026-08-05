@@ -14,7 +14,7 @@ bkg_classify(
 }
 \arguments{
 \item{.data}{\code{[GeocodingResults]} Output of
-\code{\link{bkg_geocode_offline}} or \code{\link{bkg_geocode}}.}
+\code{\link{bkg_geocode_offline}}.}
 
 \item{thresholds}{\code{[list]}
 

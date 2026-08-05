@@ -8,7 +8,7 @@ bkg_quality_summary(.data, ...)
 }
 \arguments{
 \item{.data}{\code{[GeocodingResults]} Output of
-\code{\link{bkg_geocode_offline}}/\code{\link{bkg_geocode}}, optionally
+\code{\link{bkg_geocode_offline}}, optionally
 already run through \code{\link{bkg_classify}}.}
 
 \item{...}{Passed on to \code{\link{bkg_classify}} if

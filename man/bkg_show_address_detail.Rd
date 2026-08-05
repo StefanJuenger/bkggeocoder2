@@ -8,9 +8,8 @@ bkg_show_address_detail(.data, id_col = NULL)
 }
 \arguments{
 \item{.data}{\code{[GeocodingResults]} Output of
-\code{\link{bkg_geocode_offline}} or \code{\link{bkg_geocode}}, or any
-subset of it (e.g. already filtered down to a handful of rows you want
-a closer look at).}
+\code{\link{bkg_geocode_offline}}, or any subset of it (e.g. already
+filtered down to a handful of rows you want a closer look at).}
 
 \item{id_col}{\code{[character/NULL]} Optional column used to label
 each block (e.g. \code{"ID"}). Falls back to a plain row number if
