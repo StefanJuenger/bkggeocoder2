@@ -77,6 +77,28 @@
   )
 }
 
+#' Human-readable display name for a quality value
+#'
+#' @description Used anywhere a quality value is shown to a human --
+#' \code{summary.GeocodingResults()}, \code{bkg_plot_quality()},
+#' \code{bkg_plot_map()}'s legend -- not just
+#' \code{bkg_classify_interactive()}'s header. Falls back to the value
+#' itself when it doesn't match one of the four default titles (e.g. a
+#' custom \code{labels} rename, or "wrong_place"/"unmatched", which
+#' aren't rules and so have no title of their own).
+#'
+#' @param value \code{[character]} A value from a \code{quality} column.
+#'
+#' @returns \code{[character]}
+#'
+#' @noRd
+.bkg_quality_display_name <- function(value) {
+  titles <- .bkg_default_quality_titles()
+  vapply(value, function(v) {
+    if (v %in% names(titles)) titles[[v]] else v
+  }, character(1), USE.NAMES = FALSE)
+}
+
 #' Boolean mask for one quality rule
 #'
 #' @noRd
@@ -681,4 +703,3 @@ bkg_quality_summary <- function(.data, ...) {
     pct = round(as.numeric(tbl) / sum(tbl) * 100, 1)
   )
 }
-

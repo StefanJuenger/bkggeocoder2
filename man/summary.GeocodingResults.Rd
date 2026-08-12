@@ -4,10 +4,16 @@
 \alias{summary.GeocodingResults}
 \title{Get a summary of geocoding results}
 \usage{
-\method{summary}{GeocodingResults}(object, ...)
+\method{summary}{GeocodingResults}(object, quality = TRUE, ...)
 }
 \arguments{
-\item{object}{Object of class \code{GeocodingResults}}
+\item{object}{\code{[GeocodingResults]}}
+
+\item{quality}{\code{[logical]} Whether to include a breakdown by
+quality tier (see \code{\link{bkg_classify}}), using an existing
+\code{quality} column if present, or classifying with default
+thresholds otherwise. Skipped silently if the score columns
+\code{\link{bkg_classify}} needs aren't present. Defaults to \code{TRUE}.}
 
 \item{...}{Ignored.}
 }

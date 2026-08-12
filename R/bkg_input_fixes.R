@@ -260,7 +260,7 @@ as_fix_function <- function(fix) {
 bkg_fix_remove <- function(pattern, ignore.case = FALSE, fixed = FALSE) {
   function(x) {
     for (p in pattern) {
-      x <- gsub(p, "", x, ignore.case = ignore.case, fixed = fixed)
+      x <- gsub(p, "", x, ignore.case = ignore.case, fixed = fixed, perl = TRUE)
     }
     x
   }
@@ -393,6 +393,41 @@ bkg_fix_trim <- function(which = "both") {
 #' by a normal \code{bkg_add_input_fix()} call. Only affects the
 #' component(s) actually passed in this call; any others keep whatever
 #' they had. Defaults to \code{FALSE} (append to what's already there).
+#' @param position \code{[character]}
+#'
+#' Whether the new fix(es) run \code{"after"} (the default) or
+#' \code{"before"} everything already registered for that component,
+#' built-ins included. Useful whenever a custom fix needs to see the
+#' value \emph{before} a built-in changes it -- e.g. a pattern that
+#' relies on whitespace/periods that \code{clean_house_number_input()}
+#' would otherwise already have stripped (see the section below).
+#' @param example \code{[character/list/NULL]}
+#'
+#' Optional. If given, immediately prints a step-by-step trace (see
+#' \code{\link{bkg_trace_input_fix}}) of the newly-registered fix(es)
+#' applied to this example value -- so you see right away whether it did
+#' what you expected, without a separate call. A bare string works when
+#' fixes are registered for exactly one component in this call; use a
+#' named list (\code{list(house_number = "12 10. St.")}) when registering
+#' for several components at once. Defaults to \code{NULL} (no trace).
+#'
+#' @section Fixes run in registration order, built-ins first by default:
+#' A pattern written against the raw, unprocessed text can silently stop
+#' matching if an earlier fix already changed it. This bites most often
+#' with \code{house_number}: the built-in \code{clean_house_number_input()}
+#' strips every space and period, so a pattern like \code{"[0-9][.] st[.]"}
+#' (expecting a literal period/space) never matches, even though it looks
+#' correct against the original data -- and worse, once that boundary is
+#' gone, a digit-based pattern can no longer reliably tell where a
+#' multi-digit house number ends and a floor number begins (e.g.
+#' \code{"1210"} could be house number 12 + floor 10, or house number 121
+#' + floor 0). Use \code{position = "before"} to run your own fix on the
+#' still-unprocessed value first, while the whitespace/period boundary is
+#' still there to anchor on -- e.g.
+#' \code{gsub("\\\\s+[0-9]+\\\\.?\\\\s*st\\\\.?\\\\s*$", "", x, ignore.case = TRUE)}
+#' strips a trailing floor number unambiguously, however many digits the
+#' house number itself has. Use \code{\link{bkg_trace_input_fix}} to see
+#' exactly what your fix receives at each step, instead of guessing.
 #'
 #' @returns \code{NULL}, invisibly. Called for its side effect of
 #' registering the fix(es).
@@ -432,14 +467,32 @@ bkg_fix_trim <- function(which = "both") {
 #' # Drop any custom fixes previously added for "street" (built-ins stay),
 #' # then add just this one fix on top of the defaults
 #' bkg_add_input_fix(street = ~ trimws(.x), reset = TRUE)
+#'
+#' # Strip a trailing floor number (e.g. "12 10. St.") BEFORE the built-in
+#' # clean_house_number_input() removes the whitespace/period that
+#' # unambiguously separates it from the house number
+#' bkg_add_input_fix(
+#'   house_number = ~ gsub("\\s+[0-9]+\\.?\\s*st\\.?\\s*$", "", .x, ignore.case = TRUE),
+#'   position = "before"
+#' )
+#'
+#' # Same fix, with an immediate trace of the result -- no separate
+#' # bkg_trace_input_fix() call needed
+#' bkg_add_input_fix(
+#'   house_number = ~ gsub("\\s+[0-9]+\\.?\\s*st\\.?\\s*$", "", .x, ignore.case = TRUE),
+#'   position = "before",
+#'   example = "12 10. St."
+#' )
 #' }
 #'
 #' @encoding UTF-8
 #' @export
 bkg_add_input_fix <- function(street = NULL, house_number = NULL,
                               zip_code = NULL, place = NULL,
-                              reset = FALSE) {
+                              reset = FALSE, position = c("after", "before"),
+                              example = NULL) {
   check_lgl(reset)
+  position <- match.arg(position)
   
   fixes <- list(
     street = street, house_number = house_number,
@@ -467,9 +520,50 @@ bkg_add_input_fix <- function(street = NULL, house_number = NULL,
       .bkg_input_fixes[[component]] <- .bkg_default_input_fixes()[[component]]
     }
     
-    for (fix in component_fixes) {
-      idx <- length(.bkg_input_fixes[[component]]) + 1
-      .bkg_input_fixes[[component]][[idx]] <- as_fix_function(fix)
+    new_fns <- lapply(component_fixes, as_fix_function)
+    
+    # Building the new list in one assignment (rather than appending one
+    # fix at a time in a loop) keeps the given order intact for
+    # position = "before" too -- prepending one at a time would reverse
+    # it.
+    .bkg_input_fixes[[component]] <- if (position == "before") {
+      c(new_fns, .bkg_input_fixes[[component]])
+    } else {
+      c(.bkg_input_fixes[[component]], new_fns)
+    }
+  }
+  
+  if (!is.null(example)) {
+    if (!is.list(example)) {
+      example <- list(example)
+    }
+    
+    is_unnamed <- is.null(names(example)) || any(names(example) == "")
+    if (is_unnamed) {
+      # Only unambiguous when exactly one component is being touched --
+      # e.g. example = "12 10. St." or example = list("12 10. St.") are
+      # both fine then, and treated the same way.
+      if (length(fixes) != 1 || length(example) != 1) {
+        cli::cli_abort(paste(
+          "{.arg example} must be a NAMED list (one entry per component)",
+          "when fixes are registered for more than one component in the",
+          "same call -- e.g. {.code example = list(house_number = \"12 10. St.\")}."
+        ))
+      }
+      example <- stats::setNames(example, names(fixes))
+    }
+    
+    unknown_examples <- setdiff(names(example), names(fixes))
+    if (length(unknown_examples)) {
+      cli::cli_abort(paste(
+        "{.arg example} name{?s} {.val {unknown_examples}} don't match any",
+        "component being set in this call ({.val {names(fixes)}})."
+      ))
+    }
+    
+    for (component in intersect(names(fixes), names(example))) {
+      cli::cli_h3("Trace for {.val {component}}")
+      bkg_trace_input_fix(example[[component]], component)
     }
   }
   
@@ -492,3 +586,60 @@ apply_input_fixes <- function(x, component) {
   x
 }
 
+#' Trace a value through the registered input fixes, step by step
+#'
+#' @description Applies each fix registered for one component in order,
+#' printing the value after every step -- built-ins first, then any
+#' custom ones added via \code{\link{bkg_add_input_fix}}. Meant for the
+#' exact situation where a custom fix seems to do nothing: since fixes
+#' run in a fixed order (see \code{\link{bkg_add_input_fix}}'s
+#' "Your fix runs AFTER the built-in ones" section), an earlier step may
+#' already have changed the value in a way that makes a later pattern
+#' stop matching -- this shows you precisely where, instead of leaving
+#' you to guess.
+#'
+#' @param x \code{[character]} A single example value (a short vector
+#' also works, but the printed trace is easiest to read for one value
+#' at a time).
+#' @param component \code{[character]} One of \code{"street"},
+#' \code{"house_number"}, \code{"zip_code"}, \code{"place"}.
+#'
+#' @returns The final, fully-fixed value, invisibly. Called mainly for
+#' its printed side effect.
+#'
+#' @examples
+#' \dontrun{
+#' bkg_trace_input_fix("12 1. St.", "house_number")
+#' #> Start:                          "12 1. St."
+#' #> 1. clean_house_number_input:    "12 1. St." -> "121St"
+#' #> 2. collapse_house_number_range: "121St" -> "121St" (no change)
+#' #> 3. custom fix #1:               "121St" -> "121St" (no change)
+#' }
+#'
+#' @encoding UTF-8
+#' @export
+bkg_trace_input_fix <- function(x, component) {
+  component <- match.arg(component, c("street", "house_number", "zip_code", "place"))
+  fixes <- .bkg_input_fixes[[component]]
+  
+  if (!length(fixes)) {
+    cli::cli_inform("No fixes registered for {.val {component}}.")
+    return(invisible(x))
+  }
+  
+  fix_names <- names(fixes)
+  if (is.null(fix_names)) fix_names <- character(length(fixes))
+  unnamed <- fix_names == ""
+  fix_names[unnamed] <- paste0("custom fix #", seq_along(fixes))[unnamed]
+  
+  cur <- x
+  cli::cli_inform("Start: {.val {cur}}")
+  for (i in seq_along(fixes)) {
+    new <- fixes[[i]](cur)
+    note <- if (identical(new, cur)) " (no change)" else ""
+    cli::cli_inform("{i}. {fix_names[i]}: {.val {cur}} -> {.val {new}}{note}")
+    cur <- new
+  }
+  
+  invisible(cur)
+}

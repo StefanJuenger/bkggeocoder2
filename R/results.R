@@ -54,11 +54,16 @@ print.GeocodingResults <- function(x, n = 10, ...) {
 
 #' Get a summary of geocoding results
 #'
-#' @param object Object of class \code{GeocodingResults}
+#' @param object \code{[GeocodingResults]}
+#' @param quality \code{[logical]} Whether to include a breakdown by
+#' quality tier (see \code{\link{bkg_classify}}), using an existing
+#' \code{quality} column if present, or classifying with default
+#' thresholds otherwise. Skipped silently if the score columns
+#' \code{\link{bkg_classify}} needs aren't present. Defaults to \code{TRUE}.
 #' @param ... Ignored.
 #'
 #' @export
-summary.GeocodingResults <- function(object, ...) {
+summary.GeocodingResults <- function(object, quality = TRUE, ...) {
   n_total <- nrow(object)
   has_score <- !is.na(object$score)
   n_geocoded <- sum(has_score)
@@ -72,45 +77,459 @@ summary.GeocodingResults <- function(object, ...) {
   )
   
   if (length(scores)) {
+    q <- stats::quantile(scores, c(0.1, 0.25, 0.75, 0.9))
     msg <- paste0(
       msg, "\n",
       "Mean score:                      ", round(mean(scores), 3), "\n",
       "Median score:                    ", round(stats::median(scores), 3), "\n",
       "Standard deviation of score:     ", round(stats::sd(scores), 3), "\n",
       "Minimum score:                   ", round(min(scores), 3), "\n",
-      "Maximum score:                   ", round(max(scores), 3), "\n"
+      "Maximum score:                   ", round(max(scores), 3), "\n",
+      "10th / 90th percentile:          ", round(q[["10%"]], 3), " / ", round(q[["90%"]], 3), "\n",
+      "25th / 75th percentile:          ", round(q[["25%"]], 3), " / ", round(q[["75%"]], 3), "\n"
     )
+    
+    component_cols <- c(
+      "Place"        = "place_score",
+      "Street"       = "street_score",
+      "House number" = "house_number_score"
+    )
+    available <- component_cols[component_cols %in% names(object)]
+    
+    if (length(available)) {
+      msg <- paste0(msg, "\nScore by component (mean / median):\n")
+      for (label in names(available)) {
+        vals <- object[[available[[label]]]]
+        vals <- vals[!is.na(vals)]
+        if (length(vals)) {
+          msg <- paste0(
+            msg,
+            sprintf("  %-15s%.3f / %.3f\n", paste0(label, ":"), mean(vals), stats::median(vals))
+          )
+        }
+      }
+    }
   }
   
   cat(msg)
+  
+  if (isTRUE(quality)) {
+    required_cols <- c("score", "place_score", "street_score", "house_number_score")
+    if (all(required_cols %in% names(object))) {
+      has_quality_col <- "quality" %in% names(object)
+      quality_col <- if (has_quality_col) object$quality else bkg_classify(object)$quality
+      tbl <- table(quality_col, useNA = "ifany")
+      tbl <- tbl[order(-tbl)]
+      
+      cat("\nQuality breakdown:\n")
+      for (i in seq_along(tbl)) {
+        pct <- round(tbl[i] / sum(tbl) * 100, 1)
+        display_name <- .bkg_quality_display_name(names(tbl)[i])
+        cat(sprintf("  %-32s%6d (%5.1f%%)\n", display_name, tbl[i], pct))
+      }
+      
+      if (!has_quality_col) {
+        cat(paste(
+          "\nNote: based on bkg_classify()'s DEFAULT thresholds -- these are",
+          "a starting point, not a verdict. Check them for your data (see",
+          "bkg_classify_interactive()).\n"
+        ))
+      }
+    }
+  }
   
   if (!is.null(unmatched) && nrow(unmatched)) {
     cat("\nUnmatched places:\n")
     print(unmatched)
   }
+  
+  invisible(object)
 }
 
 
-#' Plot geocoding score distribution
+#' @noRd
+.bkg_filter_by_threshold <- function(x, threshold, direction) {
+  if (is.null(threshold)) return(x)
+  keep <- if (direction == "below") x$score < threshold else x$score > threshold
+  keep[is.na(keep)] <- FALSE
+  x[keep, ]
+}
+
+#' @noRd
+.bkg_threshold_subtitle <- function(threshold, direction, n) {
+  if (is.null(threshold)) return(NULL)
+  sprintf(
+    "score %s %.2f (n = %d)",
+    if (direction == "below") "<" else ">",
+    threshold, n
+  )
+}
+
+#' Get (or compute) the quality column, with the default-thresholds disclaimer
 #'
-#' @param x Object of class \code{GeocodingResults}
-#' @param ... Further arguments passed on to \code{\link[graphics]{hist}}
+#' @description Shared by \code{summary.GeocodingResults()},
+#' \code{bkg_plot_quality()}, and \code{bkg_plot_map()} so the "was this
+#' classified with defaults or did you already check it yourself" logic
+#' only lives in one place.
+#'
+#' @param x \code{[GeocodingResults]}
+#' @param quiet \code{[logical]} Suppress the console disclaimer (the
+#' caller may prefer to show it another way, e.g. as a plot subtitle).
+#'
+#' @returns A list with \code{quality} (the column, existing or freshly
+#' classified) and \code{is_default} (whether \code{\link{bkg_classify}}'s
+#' defaults were used).
+#'
+#' @noRd
+.bkg_quality_with_disclaimer <- function(x, quiet = FALSE) {
+  required_cols <- c("score", "place_score", "street_score", "house_number_score")
+  has_quality_col <- "quality" %in% names(x)
+  
+  if (!has_quality_col) {
+    missing_cols <- setdiff(required_cols, names(x))
+    if (length(missing_cols)) {
+      cli::cli_abort(paste(
+        "{.arg x} is missing column{?s} {.val {missing_cols}} needed to",
+        "classify quality."
+      ))
+    }
+    if (!quiet) {
+      cli::cli_inform(paste(
+        "Based on bkg_classify()'s DEFAULT thresholds -- a starting point,",
+        "not a verdict. Check them for your data (see",
+        "{.fun bkg_classify_interactive})."
+      ))
+    }
+  }
+  
+  list(
+    quality = if (has_quality_col) x$quality else bkg_classify(x)$quality,
+    is_default = !has_quality_col
+  )
+}
+
+#' @noRd
+.bkg_filter_by_categories <- function(quality_col, categories) {
+  if (is.null(categories)) {
+    return(rep(TRUE, length(quality_col)))
+  }
+  unknown <- setdiff(categories, unique(quality_col))
+  if (length(unknown)) {
+    cli::cli_warn("{.val {unknown}} not present in the data -- ignoring.")
+  }
+  quality_col %in% categories
+}
+
+#' @noRd
+.bkg_filter_by_subset <- function(x, subset_col, subset_value) {
+  if (is.null(subset_col) && is.null(subset_value)) {
+    return(x)
+  }
+  if (is.null(subset_col) || is.null(subset_value)) {
+    cli::cli_abort("{.arg subset_col} and {.arg subset_value} must be supplied together.")
+  }
+  if (!subset_col %in% names(x)) {
+    cli::cli_abort("{.arg subset_col} ({.val {subset_col}}) not found in the data.")
+  }
+  keep <- x[[subset_col]] %in% subset_value
+  if (!any(keep)) {
+    cli::cli_warn("No rows match {.arg subset_value} in column {.val {subset_col}}.")
+  }
+  x[keep, ]
+}
+
+#' Plot the distribution of geocoding scores
+#'
+#' @param x \code{[GeocodingResults]}
+#' @param threshold \code{[numeric/NULL]} If given, only rows whose
+#' \code{score} is below (or above, see \code{direction}) this value are
+#' plotted. \code{NULL} (the default) plots everything.
+#' @param direction \code{[character]} Whether \code{threshold} keeps
+#' rows \code{"below"} (the default) or \code{"above"} it. Ignored if
+#' \code{threshold} is \code{NULL}.
+#' @param ... Further arguments passed on to \code{\link[graphics]{hist}}.
+#'
+#' @examples
+#' \dontrun{
+#' bkg_plot_score(gc)
+#' bkg_plot_score(gc, threshold = 0.7, direction = "below")  # worst-scoring only
+#' }
 #'
 #' @export
-plot.GeocodingResults <- function(x, ...) {
-  scores <- x$score[!is.na(x$score)]
+bkg_plot_score <- function(x, threshold = NULL, direction = c("below", "above"), ...) {
+  direction <- match.arg(direction)
+  x <- x[!is.na(x$score), ]
+  x <- .bkg_filter_by_threshold(x, threshold, direction)
   
-  if (!length(scores)) {
+  if (!nrow(x)) {
     cli::cli_warn("No scores to plot.")
     return(invisible(NULL))
   }
   
   graphics::hist(
-    scores,
+    x$score,
     main = "Distribution of geocoding scores",
+    sub = .bkg_threshold_subtitle(threshold, direction, nrow(x)),
     xlab = "Score",
     xlim = c(0, 1),
     ...
+  )
+}
+
+#' Plot the distribution of each score component side by side
+#'
+#' @description Histograms of \code{place_score}, \code{street_score},
+#' and \code{house_number_score} next to each other -- useful for
+#' spotting which component drags the overall score down.
+#'
+#' @param x \code{[GeocodingResults]}
+#' @param threshold \code{[numeric/NULL]} If given, only rows whose
+#' overall \code{score} is below (or above, see \code{direction}) this
+#' value are plotted -- filters all three panels together, e.g. "show me
+#' the component breakdown just for the worst-scoring addresses."
+#' \code{NULL} (the default) plots everything.
+#' @param direction \code{[character]} Whether \code{threshold} keeps
+#' rows \code{"below"} (the default) or \code{"above"} it. Ignored if
+#' \code{threshold} is \code{NULL}.
+#' @param ... Further arguments passed on to \code{\link[graphics]{hist}}.
+#'
+#' @export
+bkg_plot_components <- function(x, threshold = NULL, direction = c("below", "above"), ...) {
+  direction <- match.arg(direction)
+  x <- .bkg_filter_by_threshold(x, threshold, direction)
+  
+  component_cols <- c(
+    "Place"        = "place_score",
+    "Street"       = "street_score",
+    "House number" = "house_number_score"
+  )
+  available <- component_cols[component_cols %in% names(x)]
+  
+  if (!length(available) || !nrow(x)) {
+    cli::cli_warn("No component scores to plot.")
+    return(invisible(NULL))
+  }
+  
+  old_par <- graphics::par(mfrow = c(1, length(available)))
+  on.exit(graphics::par(old_par))
+  
+  for (label in names(available)) {
+    vals <- x[[available[[label]]]]
+    vals <- vals[!is.na(vals)]
+    if (length(vals)) {
+      graphics::hist(
+        vals,
+        main = label,
+        sub = .bkg_threshold_subtitle(threshold, direction, length(vals)),
+        xlab = "Score",
+        xlim = c(0, 1),
+        ...
+      )
+    }
+  }
+  
+  invisible(NULL)
+}
+
+#' Plot a bar chart of quality-tier counts
+#'
+#' @param x \code{[GeocodingResults]}
+#' @param categories \code{[character/NULL]} If given, restricts the
+#' plot to these quality tiers (e.g.
+#' \code{c("wrong_street", "wrong_house_number")}). \code{NULL} (the
+#' default) plots every tier.
+#' @param ... Further arguments passed on to
+#' \code{\link[graphics]{barplot}}.
+#'
+#' @details Uses an existing \code{quality} column if present (see
+#' \code{\link{bkg_classify}}), or classifies with default thresholds
+#' otherwise -- in the latter case, a disclaimer is printed and added as
+#' a plot subtitle, since defaults are a starting point, not a verdict.
+#'
+#' @examples
+#' \dontrun{
+#' bkg_plot_quality(gc)
+#' bkg_plot_quality(gc, categories = c("wrong_street", "wrong_house_number"))
+#' }
+#'
+#' @export
+bkg_plot_quality <- function(x, categories = NULL, ...) {
+  res <- .bkg_quality_with_disclaimer(x)
+  keep <- .bkg_filter_by_categories(res$quality, categories)
+  
+  if (!any(keep)) {
+    cli::cli_warn("No rows match the requested {.arg categories}.")
+    return(invisible(NULL))
+  }
+  
+  tbl <- table(res$quality[keep], useNA = "ifany")
+  tbl <- tbl[order(-tbl)]
+  names(tbl) <- .bkg_quality_display_name(names(tbl))
+  
+  graphics::barplot(
+    tbl,
+    main = "Geocoding quality breakdown",
+    sub = if (res$is_default) "Default thresholds -- verify for your data",
+    ylab = "Count",
+    las = 2,
+    ...
+  )
+}
+
+#' Plot geocoded points on a map
+#'
+#' @param x \code{[GeocodingResults]}
+#' @param color_by \code{[character]} Whether points are colored by
+#' \code{"score"} (continuous, red = low to green = high, the default) or
+#' by \code{"quality"} tier (categorical -- see
+#' \code{\link{bkg_plot_quality}}'s default-thresholds disclaimer, which
+#' applies here too).
+#' @param threshold \code{[numeric/NULL]} Only used when
+#' \code{color_by = "score"}: if given, only rows whose score is below
+#' (or above, see \code{direction}) this value are plotted.
+#' @param direction \code{[character]} Whether \code{threshold} keeps
+#' rows \code{"below"} (the default) or \code{"above"} it.
+#' @param categories \code{[character/NULL]} Only used when
+#' \code{color_by = "quality"}: restricts the plot to these quality tiers.
+#' @param subset_col \code{[character/NULL]} Name of a column to subset
+#' by (e.g. \code{"KRS"} for a Kreis, \code{"STA"} for a Bundesland, or
+#' any identifier column in your data) -- lets you zoom in on a specific
+#' geographic or logical group instead of plotting everything. Must be
+#' supplied together with \code{subset_value}.
+#' @param subset_value \code{[any/NULL]} Value(s) of \code{subset_col} to
+#' keep (e.g. \code{"05111"}). Must be supplied together with
+#' \code{subset_col}.
+#' @param ... Further arguments passed on to \code{\link[base]{plot}}.
+#'
+#' @examples
+#' \dontrun{
+#' bkg_plot_map(gc)                                  # colored by score
+#' bkg_plot_map(gc, color_by = "quality")             # colored by quality tier
+#' bkg_plot_map(gc, threshold = 0.7, direction = "below")  # worst-scoring only
+#' bkg_plot_map(gc, color_by = "quality", categories = "wrong_street")
+#'
+#' # Zoom in on a specific Kreis
+#' bkg_plot_map(gc, subset_col = "KRS", subset_value = "05111")
+#' }
+#'
+#' @export
+bkg_plot_map <- function(x, color_by = c("score", "quality"), threshold = NULL,
+                         direction = c("below", "above"), categories = NULL,
+                         subset_col = NULL, subset_value = NULL, ...) {
+  color_by <- match.arg(color_by)
+  direction <- match.arg(direction)
+  
+  x <- .bkg_filter_by_subset(x, subset_col, subset_value)
+  
+  geom <- sf::st_geometry(x)
+  has_geom <- !is.na(x$score) & !sf::st_is_empty(geom)
+  
+  if (!any(has_geom)) {
+    cli::cli_warn("No geocoded geometries to plot.")
+    return(invisible(NULL))
+  }
+  
+  x_plot <- x[has_geom, ]
+  
+  if (color_by == "score") {
+    x_plot <- .bkg_filter_by_threshold(x_plot, threshold, direction)
+    if (!nrow(x_plot)) {
+      cli::cli_warn("No rows match the requested {.arg threshold}.")
+      return(invisible(NULL))
+    }
+    
+    palette <- grDevices::colorRampPalette(c("red", "green"))(10)
+    bins <- cut(x_plot$score, breaks = seq(0, 1, length.out = 11), include.lowest = TRUE)
+    
+    plot(
+      sf::st_geometry(x_plot),
+      pch = 16,
+      col = palette[as.integer(bins)],
+      main = "Geocoded addresses (colored by score)",
+      sub = .bkg_threshold_subtitle(threshold, direction, nrow(x_plot)),
+      ...
+    )
+    graphics::legend(
+      "topright",
+      legend = c("low", "high"),
+      fill = c(palette[1], palette[10]),
+      title = "Score",
+      bty = "n"
+    )
+  } else {
+    res <- .bkg_quality_with_disclaimer(x_plot, quiet = TRUE)
+    keep <- .bkg_filter_by_categories(res$quality, categories)
+    
+    if (!any(keep)) {
+      cli::cli_warn("No rows match the requested {.arg categories}.")
+      return(invisible(NULL))
+    }
+    
+    x_plot <- x_plot[keep, ]
+    quality_col <- as.character(res$quality[keep])
+    tiers <- sort(unique(quality_col))
+    tier_palette <- stats::setNames(
+      grDevices::palette.colors(length(tiers), palette = "Okabe-Ito"),
+      tiers
+    )
+    
+    if (res$is_default) {
+      cli::cli_inform(paste(
+        "Based on bkg_classify()'s DEFAULT thresholds -- a starting point,",
+        "not a verdict. Check them for your data (see",
+        "{.fun bkg_classify_interactive})."
+      ))
+    }
+    
+    plot(
+      sf::st_geometry(x_plot),
+      pch = 16,
+      col = tier_palette[quality_col],
+      main = "Geocoded addresses (colored by quality)",
+      sub = if (res$is_default) "Default thresholds -- verify for your data",
+      ...
+    )
+    graphics::legend(
+      "topright",
+      legend = .bkg_quality_display_name(tiers),
+      fill = tier_palette[tiers],
+      title = "Quality",
+      bty = "n",
+      cex = 0.8
+    )
+  }
+}
+
+#' Plot geocoding results (S3 method)
+#'
+#' @description Thin wrapper dispatching to one of
+#' \code{\link{bkg_plot_score}}, \code{\link{bkg_plot_components}},
+#' \code{\link{bkg_plot_quality}}, or \code{\link{bkg_plot_map}} --
+#' called for \code{plot(x)} to work out of the box, the way any other R
+#' object's \code{plot()} method does. Each of the four has its own
+#' parameters (only relevant to that one plot); call them directly for
+#' full control instead of going through \code{type=} here.
+#'
+#' @param x \code{[GeocodingResults]}
+#' @param type \code{[character]} Which of the four plots to draw:
+#' \code{"score"} (default), \code{"components"}, \code{"quality"}, or
+#' \code{"map"}.
+#' @param ... Passed on to the underlying \code{bkg_plot_*()} function --
+#' see its own help page for the parameters that actually apply.
+#'
+#' @seealso \code{\link{bkg_plot_score}}, \code{\link{bkg_plot_components}},
+#' \code{\link{bkg_plot_quality}}, \code{\link{bkg_plot_map}}
+#'
+#' @export
+plot.GeocodingResults <- function(x, type = c("score", "components", "quality", "map"), ...) {
+  type <- match.arg(type)
+  
+  switch(
+    type,
+    score = bkg_plot_score(x, ...),
+    components = bkg_plot_components(x, ...),
+    quality = bkg_plot_quality(x, ...),
+    map = bkg_plot_map(x, ...)
   )
 }
 

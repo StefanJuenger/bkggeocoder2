@@ -2,15 +2,30 @@
 % Please edit documentation in R/results.R
 \name{plot.GeocodingResults}
 \alias{plot.GeocodingResults}
-\title{Plot geocoding score distribution}
+\title{Plot geocoding results (S3 method)}
 \usage{
-\method{plot}{GeocodingResults}(x, ...)
+\method{plot}{GeocodingResults}(x, type = c("score", "components", "quality", "map"), ...)
 }
 \arguments{
-\item{x}{Object of class \code{GeocodingResults}}
+\item{x}{\code{[GeocodingResults]}}
 
-\item{...}{Further arguments passed on to \code{\link[graphics]{hist}}}
+\item{type}{\code{[character]} Which of the four plots to draw:
+\code{"score"} (default), \code{"components"}, \code{"quality"}, or
+\code{"map"}.}
+
+\item{...}{Passed on to the underlying \code{bkg_plot_*()} function --
+see its own help page for the parameters that actually apply.}
 }
 \description{
-Plot geocoding score distribution
+Thin wrapper dispatching to one of
+\code{\link{bkg_plot_score}}, \code{\link{bkg_plot_components}},
+\code{\link{bkg_plot_quality}}, or \code{\link{bkg_plot_map}} --
+called for \code{plot(x)} to work out of the box, the way any other R
+object's \code{plot()} method does. Each of the four has its own
+parameters (only relevant to that one plot); call them directly for
+full control instead of going through \code{type=} here.
+}
+\seealso{
+\code{\link{bkg_plot_score}}, \code{\link{bkg_plot_components}},
+\code{\link{bkg_plot_quality}}, \code{\link{bkg_plot_map}}
 }

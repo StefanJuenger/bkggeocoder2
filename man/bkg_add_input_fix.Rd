@@ -10,7 +10,9 @@ bkg_add_input_fix(
   house_number = NULL,
   zip_code = NULL,
   place = NULL,
-  reset = FALSE
+  reset = FALSE,
+  position = c("after", "before"),
+  example = NULL
 )
 }
 \arguments{
@@ -37,6 +39,25 @@ a shorthand for calling \code{\link{bkg_reset_input_fixes}} followed
 by a normal \code{bkg_add_input_fix()} call. Only affects the
 component(s) actually passed in this call; any others keep whatever
 they had. Defaults to \code{FALSE} (append to what's already there).}
+
+\item{position}{\code{[character]}
+
+Whether the new fix(es) run \code{"after"} (the default) or
+\code{"before"} everything already registered for that component,
+built-ins included. Useful whenever a custom fix needs to see the
+value \emph{before} a built-in changes it -- e.g. a pattern that
+relies on whitespace/periods that \code{clean_house_number_input()}
+would otherwise already have stripped (see the section below).}
+
+\item{example}{\code{[character/list/NULL]}
+
+Optional. If given, immediately prints a step-by-step trace (see
+\code{\link{bkg_trace_input_fix}}) of the newly-registered fix(es)
+applied to this example value -- so you see right away whether it did
+what you expected, without a separate call. A bare string works when
+fixes are registered for exactly one component in this call; use a
+named list (\code{list(house_number = "12 10. St.")}) when registering
+for several components at once. Defaults to \code{NULL} (no trace).}
 }
 \value{
 \code{NULL}, invisibly. Called for its side effect of
@@ -50,6 +71,28 @@ character vector of the same length. Registered fixes apply to every
 subsequent call of \code{\link{bkg_geocode_offline}} in the current R
 session.
 }
+\section{Fixes run in registration order, built-ins first by default}{
+
+A pattern written against the raw, unprocessed text can silently stop
+matching if an earlier fix already changed it. This bites most often
+with \code{house_number}: the built-in \code{clean_house_number_input()}
+strips every space and period, so a pattern like \code{"[0-9][.] st[.]"}
+(expecting a literal period/space) never matches, even though it looks
+correct against the original data -- and worse, once that boundary is
+gone, a digit-based pattern can no longer reliably tell where a
+multi-digit house number ends and a floor number begins (e.g.
+\code{"1210"} could be house number 12 + floor 10, or house number 121
+\itemize{
+\item floor 0). Use \code{position = "before"} to run your own fix on the
+still-unprocessed value first, while the whitespace/period boundary is
+still there to anchor on -- e.g.
+\code{gsub("\\\\s+[0-9]+\\\\.?\\\\s*st\\\\.?\\\\s*$", "", x, ignore.case = TRUE)}
+strips a trailing floor number unambiguously, however many digits the
+house number itself has. Use \code{\link{bkg_trace_input_fix}} to see
+exactly what your fix receives at each step, instead of guessing.
+}
+}
+
 \examples{
 \dontrun{
 # Plain function
@@ -85,6 +128,22 @@ bkg_add_input_fix(
 # Drop any custom fixes previously added for "street" (built-ins stay),
 # then add just this one fix on top of the defaults
 bkg_add_input_fix(street = ~ trimws(.x), reset = TRUE)
+
+# Strip a trailing floor number (e.g. "12 10. St.") BEFORE the built-in
+# clean_house_number_input() removes the whitespace/period that
+# unambiguously separates it from the house number
+bkg_add_input_fix(
+  house_number = ~ gsub("\\\\s+[0-9]+\\\\.?\\\\s*st\\\\.?\\\\s*$", "", .x, ignore.case = TRUE),
+  position = "before"
+)
+
+# Same fix, with an immediate trace of the result -- no separate
+# bkg_trace_input_fix() call needed
+bkg_add_input_fix(
+  house_number = ~ gsub("\\\\s+[0-9]+\\\\.?\\\\s*st\\\\.?\\\\s*$", "", .x, ignore.case = TRUE),
+  position = "before",
+  example = "12 10. St."
+)
 }
 
 }
