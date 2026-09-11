@@ -295,9 +295,8 @@ bkg_match_addresses_ddb <- function(
   matched_data$whole_address_in <- trimws(paste0(
     matched_data$street_raw,
     if (house_number %in% colnames(matched_data)) {
-      paste0(" ", matched_data[[house_number]], recycle0 = TRUE)
-    },
-    recycle0 = TRUE
+      paste0(" ", matched_data[[house_number]])
+    }
   ))
   
   # House number as character, kept exactly as entered -- this is the
