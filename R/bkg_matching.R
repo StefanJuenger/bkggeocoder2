@@ -563,8 +563,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     address_input = paste(
       messy_data$whole_address_input,
       messy_data[[paste0(zip_code, "_input")]],
-      messy_data[[paste0(place, "_input")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_input")]]
     ),
     street_input = messy_data[[paste0(street, "_input")]],
     house_number_input = if (house_number != "") {
@@ -580,8 +579,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
       messy_data[[paste0(street, "_cleaned")]],
       if (house_number != "") messy_data[[paste0(house_number, "_cleaned")]],
       messy_data[[paste0(zip_code, "_cleaned")]],
-      messy_data[[paste0(place, "_cleaned")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_cleaned")]]
     ),
     street_cleaned = messy_data[[paste0(street, "_cleaned")]],
     house_number_cleaned = if (house_number != "") {
@@ -600,8 +598,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     place_output = messy_data[[paste0(place, "_output")]],
     RS  = messy_data$RS,
     AGS = paste0(
-      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12),
-      recycle0 = TRUE
+      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12)
     ),
     VWG = substr(messy_data$RS, 1, 9),
     KRS = substr(messy_data$RS, 1, 5),
