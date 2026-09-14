@@ -2,35 +2,35 @@
 # print.GeocodingResults()
 # ------------------------------------------------------------------------
 
-test_that("print.GeocodingResults() reports totals and unmatched count", {
+test_that("print.GeocodingResults2() reports totals and unmatched count", {
   x <- make_fake_results()
   
-  expect_output(print(x), "GeocodingResults")
+  expect_output(print(x), "GeocodingResults2")
   expect_output(print(x), "Addresses:\\s+3")
   expect_output(print(x), "Geocoded:\\s+2\\s*/\\s*3")
   expect_output(print(x), "Mean score:")
   expect_output(print(x), "Unmatched:\\s+1")
 })
 
-test_that("print.GeocodingResults() omits the unmatched line when everything matched", {
+test_that("print.GeocodingResults2() omits the unmatched line when everything matched", {
   x <- make_fake_results(scores = c(0.9, 0.8))
   out <- capture.output(print(x))
   expect_false(any(grepl("Unmatched:", out)))
 })
 
-test_that("print.GeocodingResults() omits the mean score line when nothing matched", {
+test_that("print.GeocodingResults2() omits the mean score line when nothing matched", {
   x <- make_fake_results(scores = c(NA, NA))
   out <- capture.output(print(x))
   expect_false(any(grepl("Mean score:", out)))
 })
 
-test_that("print.GeocodingResults() returns its input invisibly", {
+test_that("print.GeocodingResults2() returns its input invisibly", {
   x <- make_fake_results()
   invisible(capture.output(result <- print(x)))
   expect_identical(result, x)
 })
 
-test_that("print.GeocodingResults() truncates and notes additional rows", {
+test_that("print.GeocodingResults2() truncates and notes additional rows", {
   x <- make_fake_results(
     scores = rep(0.9, 12),
     address_input = paste("Straße", 1:12),
@@ -40,10 +40,10 @@ test_that("print.GeocodingResults() truncates and notes additional rows", {
 })
 
 # ------------------------------------------------------------------------
-# summary.GeocodingResults()
+# summary.GeocodingResults2()
 # ------------------------------------------------------------------------
 
-test_that("summary.GeocodingResults() reports score statistics", {
+test_that("summary.GeocodingResults2() reports score statistics", {
   x <- make_fake_results(scores = c(0.9, 0.8, 0.7))
   out <- capture.output(summary(x))
   out_text <- paste(out, collapse = "\n")
@@ -53,7 +53,7 @@ test_that("summary.GeocodingResults() reports score statistics", {
   expect_match(out_text, "Mean score:\\s+0.8")
 })
 
-test_that("summary.GeocodingResults() lists unmatched places when present", {
+test_that("summary.GeocodingResults2() lists unmatched places when present", {
   unmatched <- data.frame(zip_code = "99999", place = "Nirgendwostadt")
   x <- make_fake_results(unmatched_places = unmatched)
   
@@ -61,17 +61,17 @@ test_that("summary.GeocodingResults() lists unmatched places when present", {
   expect_output(summary(x), "Nirgendwostadt")
 })
 
-test_that("summary.GeocodingResults() skips the unmatched section when there is none", {
+test_that("summary.GeocodingResults2() skips the unmatched section when there is none", {
   x <- make_fake_results(scores = c(0.9, 0.8), unmatched_places = NULL)
   out <- capture.output(summary(x))
   expect_false(any(grepl("Unmatched places:", out)))
 })
 
 # ------------------------------------------------------------------------
-# plot.GeocodingResults()
+# plot.GeocodingResults2()
 # ------------------------------------------------------------------------
 
-test_that("plot.GeocodingResults() draws a histogram when scores are present", {
+test_that("plot.GeocodingResults2() draws a histogram when scores are present", {
   x <- make_fake_results(scores = c(0.9, 0.8, 0.7))
   
   path <- withr::local_tempfile(fileext = ".png")
@@ -81,7 +81,7 @@ test_that("plot.GeocodingResults() draws a histogram when scores are present", {
   expect_no_error(plot(x))
 })
 
-test_that("plot.GeocodingResults() warns and does nothing when there are no scores", {
+test_that("plot.GeocodingResults2() warns and does nothing when there are no scores", {
   x <- make_fake_results(scores = c(NA, NA))
   expect_warning(result <- plot(x), "No scores to plot")
   expect_null(result)
@@ -91,7 +91,7 @@ test_that("plot.GeocodingResults() warns and does nothing when there are no scor
 # bkg_export_geocodes()
 # ------------------------------------------------------------------------
 
-test_that("bkg_export_geocodes() rejects objects that aren't GeocodingResults", {
+test_that("bkg_export_geocodes() rejects objects that aren't GeocodingResults2", {
   expect_error(
     bkg_export_geocodes(data.frame(x = 1), "out.csv")
   )
