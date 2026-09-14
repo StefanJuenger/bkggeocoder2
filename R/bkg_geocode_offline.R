@@ -250,6 +250,6 @@ bkg_geocode_offline <- function(
     call = match.call(),
     type = "offline",
     args = args,
-    class = c("GeocodingResults", class(cleaned_data))
+    class = c("GeocodingResults2", class(cleaned_data))
   )
 }
