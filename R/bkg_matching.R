@@ -333,9 +333,8 @@ bkg_match_addresses_ddb <- function(
   matched_data$whole_address_in <- trimws(paste0(
     matched_data$street_raw,
     if (house_number %in% colnames(matched_data)) {
-      paste0(" ", matched_data[[house_number]], recycle0 = TRUE)
-    },
-    recycle0 = TRUE
+      paste0(" ", matched_data[[house_number]])
+    }
   ))
   
   # House number as character, kept exactly as entered -- this is the
@@ -602,8 +601,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     address_input = paste(
       messy_data$whole_address_input,
       messy_data[[paste0(zip_code, "_input")]],
-      messy_data[[paste0(place, "_input")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_input")]]
     ),
     street_input = messy_data[[paste0(street, "_input")]],
     house_number_input = if (house_number != "") {
@@ -619,8 +617,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
       messy_data[[paste0(street, "_cleaned")]],
       if (house_number != "") messy_data[[paste0(house_number, "_cleaned")]],
       messy_data[[paste0(zip_code, "_cleaned")]],
-      messy_data[[paste0(place, "_cleaned")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_cleaned")]]
     ),
     street_cleaned = messy_data[[paste0(street, "_cleaned")]],
     house_number_cleaned = if (house_number != "") {
@@ -639,8 +636,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     place_output = messy_data[[paste0(place, "_output")]],
     RS  = messy_data$RS,
     AGS = paste0(
-      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12),
-      recycle0 = TRUE
+      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12)
     ),
     VWG = substr(messy_data$RS, 1, 9),
     KRS = substr(messy_data$RS, 1, 5),
