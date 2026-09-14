@@ -117,7 +117,7 @@
       house_number_score >= th$semi_house_number,
     wrong_house_number = place_score >= th$semi_place &
       street_score >= th$wrong_hn_street &
-      house_number_score < th$wrong_hn_house_number,
+      (house_number_score < th$wrong_hn_house_number) %|||% TRUE,
     wrong_street = place_score >= th$semi_place,
     cli::cli_abort("Unknown rule {.val {rule}}.")
   )

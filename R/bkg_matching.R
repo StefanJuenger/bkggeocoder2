@@ -267,9 +267,10 @@ bkg_match_addresses_ddb <- function(
     verbose
 ) {
   street <- cols[1]
-  house_number <- ifelse(length(cols) == 4, cols[2], "")
-  zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
-  place <- ifelse(length(cols) == 4, cols[4], cols[3])
+  has_hn <- length(cols) == 4
+  house_number <- ifelse(has_hn, cols[2], "")
+  zip_code <- ifelse(has_hn, cols[3], cols[2])
+  place <- ifelse(has_hn, cols[4], cols[3])
   
   # Nothing to match (e.g. every address failed place-matching) -- bail
   # out before an empty parquet-path list produces invalid SQL, and
@@ -329,16 +330,15 @@ bkg_match_addresses_ddb <- function(
     matched_data$street_raw
   )
   matched_data$street_clean <- apply_input_fixes(street_for_matching, "street")
-  
+
   # Whole address for DISPLAY -- built from the raw street text, never
   # from street_clean, so address_input always reflects exactly what was
   # entered, regardless of which input fixes are registered.
   matched_data$whole_address_in <- trimws(paste0(
     matched_data$street_raw,
     if (house_number %in% colnames(matched_data)) {
-      paste0(" ", matched_data[[house_number]], recycle0 = TRUE)
-    },
-    recycle0 = TRUE
+      paste0(" ", matched_data[[house_number]])
+    }
   ))
   
   # House number as character, kept exactly as entered -- this is the
@@ -496,10 +496,17 @@ bkg_match_addresses_ddb <- function(
   
   geocoded$house_number_score[geocoded$house_number_score < 0] <- 0
   
+  if (!has_hn) {
+    geocoded$house_number_score <- NA_real_
+  }
+  
   geocoded$score <-
     pmax(geocoded$place_score, 0.5)^hierarchical_weight *
-    pmax(geocoded$street_score, 0.5)^hierarchical_weight *
-    pmax(geocoded$house_number_score, 0.5)^hierarchical_weight
+    pmax(geocoded$street_score, 0.5)^hierarchical_weight
+  if (has_hn) {
+    geocoded$score <- geocoded$score *
+      pmax(geocoded$house_number_score, 0.5)^hierarchical_weight
+  }
   
   # Build result with .x/.y column names that bkg_clean_matched_addresses expects
   result <- data.frame(
@@ -605,8 +612,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     address_input = paste(
       messy_data$whole_address_input,
       messy_data[[paste0(zip_code, "_input")]],
-      messy_data[[paste0(place, "_input")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_input")]]
     ),
     street_input = messy_data[[paste0(street, "_input")]],
     house_number_input = if (house_number != "") {
@@ -622,8 +628,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
       messy_data[[paste0(street, "_cleaned")]],
       if (house_number != "") messy_data[[paste0(house_number, "_cleaned")]],
       messy_data[[paste0(zip_code, "_cleaned")]],
-      messy_data[[paste0(place, "_cleaned")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_cleaned")]]
     ),
     street_cleaned = messy_data[[paste0(street, "_cleaned")]],
     house_number_cleaned = if (house_number != "") {
@@ -642,8 +647,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     place_output = messy_data[[paste0(place, "_output")]],
     RS  = messy_data$RS,
     AGS = paste0(
-      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12),
-      recycle0 = TRUE
+      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12)
     ),
     VWG = substr(messy_data$RS, 1, 9),
     KRS = substr(messy_data$RS, 1, 5),
