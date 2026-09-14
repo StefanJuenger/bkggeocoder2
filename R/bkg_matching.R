@@ -93,7 +93,10 @@ bkg_match_places_ddb <- function(
   .data$zip_match_key <- apply_input_fixes(.data[, zip_code], "zip_code")
   
   if (isTRUE(verbose)) {
-    n_places <- nrow(unique(.data[c(place, if (match_zip) zip_code)]))
+    n_places <- nrow(unique(.data[c(
+      if (!is.na(place_block_spec)) place,
+      if (!is.na(zip_block_spec)) zip_code
+    )]))
     cli::cli_inform(
       "Found {.val {nrow(unique(.data[c(place, zip_code)]))}} distinct places."
     )
