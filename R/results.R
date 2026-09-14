@@ -1,24 +1,24 @@
-# Everything related to consuming / presenting a GeocodingResults object:
+# Everything related to consuming / presenting a GeocodingResults2 object:
 # S3 methods (print, summary, plot) and exporting results to disk.
 
 # S3 methods ----
 
 #' Print geocoding results
 #'
-#' @param x Object of class \code{GeocodingResults}
+#' @param x Object of class \code{GeocodingResults2}
 #' @param n Maximum number of rows to display. Defaults to 10.
 #' @param ... Further arguments passed on to
 #' \code{\link[base:print.data.frame]{base::print.data.frame()}}
 #'
 #' @export
-print.GeocodingResults <- function(x, n = 10, ...) {
+print.GeocodingResults2 <- function(x, n = 10, ...) {
   n_total <- nrow(x)
   has_score <- !is.na(x$score)
   n_place_matched <- sum(has_score)
   n_unmatched <- n_total - n_place_matched
   scores <- x$score[has_score]
   
-  cat("Class:", strrep(" ", 5), "GeocodingResults", "\n")
+  cat("Class:", strrep(" ", 5), "GeocodingResults2", "\n")
   cat("Addresses:", strrep(" ", 2), n_total, "\n")
   cat("Geocoded:", strrep(" ", 3), n_place_matched, "/", n_total, "\n")
   
@@ -41,7 +41,7 @@ print.GeocodingResults <- function(x, n = 10, ...) {
   
   if (length(display_cols)) {
     printed_df <- sf::st_drop_geometry(x[seq_len(min(n, n_total)), display_cols])
-    class(printed_df) <- setdiff(class(printed_df), "GeocodingResults")
+    class(printed_df) <- setdiff(class(printed_df), "")
     print(printed_df, ...)
     if (n_total > n) {
       cat(sprintf("... and %d more rows\n", n_total - n))
@@ -54,7 +54,7 @@ print.GeocodingResults <- function(x, n = 10, ...) {
 
 #' Get a summary of geocoding results
 #'
-#' @param object \code{[GeocodingResults]}
+#' @param object \code{[GeocodingResults2]}
 #' @param quality \code{[logical]} Whether to include a breakdown by
 #' quality tier (see \code{\link{bkg_classify}}), using an existing
 #' \code{quality} column if present, or classifying with default
@@ -63,7 +63,7 @@ print.GeocodingResults <- function(x, n = 10, ...) {
 #' @param ... Ignored.
 #'
 #' @export
-summary.GeocodingResults <- function(object, quality = TRUE, ...) {
+summary.GeocodingResults2 <- function(object, quality = TRUE, ...) {
   n_total <- nrow(object)
   has_score <- !is.na(object$score)
   n_geocoded <- sum(has_score)
@@ -167,12 +167,12 @@ summary.GeocodingResults <- function(object, quality = TRUE, ...) {
 
 #' Get (or compute) the quality column, with the default-thresholds disclaimer
 #'
-#' @description Shared by \code{summary.GeocodingResults()},
+#' @description Shared by \code{summary.GeocodingResults2()},
 #' \code{bkg_plot_quality()}, and \code{bkg_plot_map()} so the "was this
 #' classified with defaults or did you already check it yourself" logic
 #' only lives in one place.
 #'
-#' @param x \code{[GeocodingResults]}
+#' @param x \code{[GeocodingResults2]}
 #' @param quiet \code{[logical]} Suppress the console disclaimer (the
 #' caller may prefer to show it another way, e.g. as a plot subtitle).
 #'
@@ -240,7 +240,7 @@ summary.GeocodingResults <- function(object, quality = TRUE, ...) {
 
 #' Plot the distribution of geocoding scores
 #'
-#' @param x \code{[GeocodingResults]}
+#' @param x \code{[GeocodingResults2]}
 #' @param threshold \code{[numeric/NULL]} If given, only rows whose
 #' \code{score} is below (or above, see \code{direction}) this value are
 #' plotted. \code{NULL} (the default) plots everything.
@@ -282,7 +282,7 @@ bkg_plot_score <- function(x, threshold = NULL, direction = c("below", "above"),
 #' and \code{house_number_score} next to each other -- useful for
 #' spotting which component drags the overall score down.
 #'
-#' @param x \code{[GeocodingResults]}
+#' @param x \code{[GeocodingResults2]}
 #' @param threshold \code{[numeric/NULL]} If given, only rows whose
 #' overall \code{score} is below (or above, see \code{direction}) this
 #' value are plotted -- filters all three panels together, e.g. "show me
@@ -333,7 +333,7 @@ bkg_plot_components <- function(x, threshold = NULL, direction = c("below", "abo
 
 #' Plot a bar chart of quality-tier counts
 #'
-#' @param x \code{[GeocodingResults]}
+#' @param x \code{[GeocodingResults2]}
 #' @param categories \code{[character/NULL]} If given, restricts the
 #' plot to these quality tiers (e.g.
 #' \code{c("wrong_street", "wrong_house_number")}). \code{NULL} (the
@@ -378,7 +378,7 @@ bkg_plot_quality <- function(x, categories = NULL, ...) {
 
 #' Plot geocoded points on a map
 #'
-#' @param x \code{[GeocodingResults]}
+#' @param x \code{[GeocodingResults2]}
 #' @param color_by \code{[character]} Whether points are colored by
 #' \code{"score"} (continuous, red = low to green = high, the default) or
 #' by \code{"quality"} tier (categorical -- see
@@ -510,7 +510,7 @@ bkg_plot_map <- function(x, color_by = c("score", "quality"), threshold = NULL,
 #' parameters (only relevant to that one plot); call them directly for
 #' full control instead of going through \code{type=} here.
 #'
-#' @param x \code{[GeocodingResults]}
+#' @param x \code{[GeocodingResults2]}
 #' @param type \code{[character]} Which of the four plots to draw:
 #' \code{"score"} (default), \code{"components"}, \code{"quality"}, or
 #' \code{"map"}.
@@ -521,7 +521,7 @@ bkg_plot_map <- function(x, color_by = c("score", "quality"), threshold = NULL,
 #' \code{\link{bkg_plot_quality}}, \code{\link{bkg_plot_map}}
 #'
 #' @export
-plot.GeocodingResults <- function(x, type = c("score", "components", "quality", "map"), ...) {
+plot.GeocodingResults2 <- function(x, type = c("score", "components", "quality", "map"), ...) {
   type <- match.arg(type)
   
   switch(
@@ -546,7 +546,7 @@ plot.GeocodingResults <- function(x, type = c("score", "components", "quality", 
 #' sidesteps the problem entirely by never putting them next to each
 #' other in the first place.
 #'
-#' @param .data \code{[GeocodingResults]} Output of
+#' @param .data \code{[GeocodingResults2]} Output of
 #' \code{\link{bkg_geocode_offline}}, or any subset of it (e.g. already
 #' filtered down to a handful of rows you want a closer look at).
 #' @param id_col \code{[character/NULL]} Optional column used to label
@@ -605,7 +605,7 @@ bkg_show_address_detail <- function(.data, id_col = NULL) {
 #'
 #' Export the output of \code{\link[bkggeocoder2]{bkg_geocode_offline}}.
 #'
-#' @param .data \code{[GeocodingResults]}
+#' @param .data \code{[GeocodingResults2]}
 #'
 #' Output of \code{\link[bkggeocoder2]{bkg_geocode_offline}} that should be
 #' exported.
@@ -630,9 +630,9 @@ bkg_show_address_detail <- function(.data, id_col = NULL) {
 #'
 #' @export
 bkg_export_geocodes <- function(.data, file, overwrite = TRUE, ...) {
-  if (!inherits(.data, "GeocodingResults")) {
+  if (!inherits(.data, "GeocodingResults2")) {
     cli::cli_abort(c(
-      "i" = "Expected object of class {.cls GeocodingResults}",
+      "i" = "Expected object of class {.cls GeocodingResults2}",
       "x" = "Got object of class {.cls {class(.data)[1]}}"
     ))
   }
