@@ -94,7 +94,7 @@ bkg_match_places_ddb <- function(
   
   if (isTRUE(verbose)) {
     n_places <- nrow(unique(.data[c(
-      if (is.na(place_block_spec)) place,
+      if (!is.na(place_block_spec)) place,
       if (!is.na(zip_block_spec)) zip_code
     )]))
     cli::cli_inform(
