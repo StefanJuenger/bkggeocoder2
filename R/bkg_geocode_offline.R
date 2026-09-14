@@ -62,6 +62,19 @@
 #'
 #' Penalty subtracted from the house-number score if the input and matched
 #' house number differ. Defaults to \code{0.1}.
+#' @param block \code{[list]}
+#' 
+#' Named list that controls blocking strictness. Can consist of two fields
+#' \code{place} and \code{zip} with integer values relating to the number of
+#' leading characters used as blocking keys. For example,
+#' \code{list(place = 3, zip = 1)} uses the first three characters of the
+#' place name and the first character of the zip code as blocking keys.
+#' If a value is \code{NA}, the key is not used for blocking. The default is
+#' to use the first three digits of the zip code for blocking.
+#' 
+#' This argument can be useful to account for address quality issues.
+#' Depending on the data source, either place names or zip codes can be
+#' more suitable as blocking keys.
 #' @param verbose \code{[logical]}
 #'
 #' Whether to print informative messages and progress bars during the
@@ -113,6 +126,7 @@ bkg_geocode_offline <- function(
     place_match_quality = 0.8,
     hierarchical_weight = 0.5,
     house_number_penalty = 0.1,
+    block = list(place = NA, zip = 3),
     verbose = TRUE
 ) {
   
@@ -173,6 +187,7 @@ bkg_geocode_offline <- function(
     cols = cols,
     db_path = db_path,
     place_match_quality = place_match_quality,
+    block = block,
     con = con,
     verbose = verbose
   )

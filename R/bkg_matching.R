@@ -50,12 +50,32 @@ bkg_match_places_ddb <- function(
     cols,
     db_path,
     place_match_quality = 0.85,
+    block = list(place = NA, zip = 3),
     con,
     verbose
 ) {
   
   place <- ifelse(length(cols) == 4, cols[4], cols[3])
   zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
+  place_block_spec <- unlist(block["place"]) %|||% unlist(block[1]) %|||% NA
+  zip_block_spec = unlist(block["zip"]) %|||% unlist(block[2]) %|||% NA
+  place_block <- ifelse(
+    is.na(place_block_spec),
+    "place_simple",
+    sprintf("substr(place_simple, 1, %s)", place_block_spec)
+  )
+  zip_block <- ifelse(
+    is.na(zip_block_spec),
+    "zip_code",
+    sprintf("substr(zip_code, 1, %s)", zip_block_spec)
+  )
+  join_spec <- paste(
+    "ON",
+    paste(c(
+      if (!is.na(zip_block_spec)) "input.zip_block = ref.zip_block",
+      if (!is.na(place_block_spec)) "input.place_block = ref.place_block"
+    ), collapse = " OR ")
+  )
   
   # Prepare input ----
   
@@ -73,6 +93,7 @@ bkg_match_places_ddb <- function(
   .data$zip_match_key <- apply_input_fixes(.data[, zip_code], "zip_code")
   
   if (isTRUE(verbose)) {
+    n_places <- nrow(unique(.data[c(place, if (match_zip) zip_code)]))
     cli::cli_inform(
       "Found {.val {nrow(unique(.data[c(place, zip_code)]))}} distinct places."
     )
@@ -94,14 +115,13 @@ bkg_match_places_ddb <- function(
   )
   
   # SQL matching (reclin2-like scoring) ----
-  
   # Zip codes are blocked on their first 3 digits rather than joined on
   # exact equality, so a single-digit typo doesn't produce zero
   # candidates. Blocking keeps the candidate set small (still trivial for
   # jaro_winkler_similarity) while scoring the exact zip fuzzily
   # alongside the place name instead of using it as a hard filter.
   sql <- sprintf("
-    WITH ref AS (
+    WITH ref_norm AS (
       SELECT
         place,
         place_add,
@@ -109,15 +129,29 @@ bkg_match_places_ddb <- function(
         place_slug,
         trim(concat(place, ' ', COALESCE(place_add, ''))) AS place_full,
         %s AS place_simple,
-        substr(zip_code, 1, 3) AS zip_block
+        zip_code AS zip_code
       FROM read_parquet(%s)
+    ),
+    ref AS (
+      SELECT
+        *,
+        %s AS place_block,
+        %s AS zip_block
+      FROM ref_norm
     ),
     input_norm AS (
       SELECT
         *,
         %s AS place_simple,
-        substr(zip_match_key, 1, 3) AS zip_block
+        zip_match_key AS zip_code
       FROM %s
+    ),
+    input AS (
+      SELECT
+        *,
+        %s AS place_block,
+        %s AS zip_block
+      FROM input_norm
     ),
     scored AS (
       SELECT
@@ -137,9 +171,9 @@ bkg_match_places_ddb <- function(
           *
           jaro_winkler_similarity(input.zip_match_key, ref.zip_code)
         ) AS total_score
-      FROM input_norm input
+      FROM input
       LEFT JOIN ref
-        ON input.zip_block = ref.zip_block
+        %s
     )
     SELECT *
     FROM scored
@@ -156,12 +190,16 @@ bkg_match_places_ddb <- function(
         (zip_score >= 0.999 AND place_score >= 0.6) DESC,
         total_score DESC,
         place_matched
-    ) = 1
-  ",
-                 nk_plain("concat(place, ' ', COALESCE(place_add, ''))"),
-                 DBI::dbQuoteString(con, zip_places_path),
-                 nk_plain("place_match_key"),
-                 input_tbl
+    ) = 1",
+    nk_plain("concat(place, ' ', COALESCE(place_add, ''))"),
+    DBI::dbQuoteString(con, zip_places_path),
+    place_block,
+    zip_block,
+    nk_plain("place_match_key"),
+    input_tbl,
+    place_block,
+    zip_block,
+    join_spec
   )
   
   matched <- DBI::dbGetQuery(con, sql)
