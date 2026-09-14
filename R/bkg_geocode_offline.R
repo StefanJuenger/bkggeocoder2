@@ -127,6 +127,7 @@ bkg_geocode_offline <- function(
     hierarchical_weight = 0.5,
     house_number_penalty = 0.1,
     block = list(place = NA, zip = 3),
+    full_places = TRUE,
     verbose = TRUE
 ) {
   
@@ -206,6 +207,7 @@ bkg_geocode_offline <- function(
     db_path = db_path,
     hierarchical_weight = hierarchical_weight,
     house_number_penalty = house_number_penalty,
+    full_places = full_places,
     con = con,
     verbose = verbose
   )

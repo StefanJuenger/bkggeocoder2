@@ -74,7 +74,7 @@ bkg_match_places_ddb <- function(
     paste(c(
       if (!is.na(zip_block_spec)) "input.zip_block = ref.zip_block",
       if (!is.na(place_block_spec)) "input.place_block = ref.place_block"
-    ), collapse = " OR ")
+    ), collapse = " AND ")
   )
   
   # Prepare input ----
@@ -180,20 +180,20 @@ bkg_match_places_ddb <- function(
     )
     SELECT *
     FROM scored
-    QUALIFY ROW_NUMBER() OVER (
-      PARTITION BY \".iid\"
-      ORDER BY
-        -- An exact zip match (zip_score = 1.0) with a plausible place
-        -- score (>= 0.6) always wins over a fuzzy-zip candidate,
-        -- regardless of total_score: same-block zip codes alone already
-        -- score ~0.8-0.92 via jaro_winkler, too close to 1.0 to reliably
-        -- protect a correct-but-imperfect place match otherwise. Fuzzy
-        -- candidates only compete when no exact-zip candidate clears
-        -- this bar (i.e. an actual zip-code typo).
-        (zip_score >= 0.999 AND place_score >= 0.6) DESC,
-        total_score DESC,
-        place_matched
-    ) = 1",
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY \".iid\"
+        ORDER BY
+          -- An exact zip match (zip_score = 1.0) with a plausible place
+          -- score (>= 0.6) always wins over a fuzzy-zip candidate,
+          -- regardless of total_score: same-block zip codes alone already
+          -- score ~0.8-0.92 via jaro_winkler, too close to 1.0 to reliably
+          -- protect a correct-but-imperfect place match otherwise. Fuzzy
+          -- candidates only compete when no exact-zip candidate clears
+          -- this bar (i.e. an actual zip-code typo).
+          (zip_score >= 0.999 AND place_score >= 0.6) DESC,
+          total_score DESC,
+          place_matched
+      ) = 1",
     nk_plain("concat(place, ' ', COALESCE(place_add, ''))"),
     DBI::dbQuoteString(con, zip_places_path),
     place_block,
@@ -204,11 +204,10 @@ bkg_match_places_ddb <- function(
     zip_block,
     join_spec
   )
-  
+
   matched <- DBI::dbGetQuery(con, sql)
   
   # Merge back ----
-  
   result <- merge(
     .data,
     matched[, c(".iid", "place_matched", "zip_code_matched",
@@ -263,6 +262,7 @@ bkg_match_addresses_ddb <- function(
     db_path,
     hierarchical_weight = 0.5,
     house_number_penalty = .05,
+    full_places = FALSE,
     con,
     verbose
 ) {
@@ -270,7 +270,7 @@ bkg_match_addresses_ddb <- function(
   house_number <- ifelse(length(cols) == 4, cols[2], "")
   zip_code <- ifelse(length(cols) == 4, cols[3], cols[2])
   place <- ifelse(length(cols) == 4, cols[4], cols[3])
-  
+
   # Nothing to match (e.g. every address failed place-matching) -- bail
   # out before an empty parquet-path list produces invalid SQL, and
   # paste0() silently misbehaves on zero-row input.
@@ -336,9 +336,8 @@ bkg_match_addresses_ddb <- function(
   matched_data$whole_address_in <- trimws(paste0(
     matched_data$street_raw,
     if (house_number %in% colnames(matched_data)) {
-      paste0(" ", matched_data[[house_number]], recycle0 = TRUE)
-    },
-    recycle0 = TRUE
+      paste0(" ", matched_data[[house_number]])
+    }
   ))
   
   # House number as character, kept exactly as entered -- this is the
@@ -374,10 +373,9 @@ bkg_match_addresses_ddb <- function(
     DBI::dbExecute(con, sprintf("DROP VIEW IF EXISTS %s", input_tbl)),
     add = TRUE
   )
-  
+
   # String normalization uses the shared nk()/nk_street() helpers defined at
   # the top of this file, so both matching steps stay consistent.
-  
   # Two-stage SQL matching ----
   # house_number_full is already the canonical, combined house number
   # (computed once when the database was built, see combine_house_number()
@@ -416,7 +414,7 @@ bkg_match_addresses_ddb <- function(
       FROM input_norm input
       INNER JOIN addr
         ON input.place_slug = addr.place_slug
-        AND input.zip_code_matched = addr.zip_code
+        %s
       QUALIFY ROW_NUMBER() OVER (
         PARTITION BY input.\".iid\"
         ORDER BY street_score DESC
@@ -446,11 +444,14 @@ bkg_match_addresses_ddb <- function(
       FROM street_match sm
       INNER JOIN addr addr2
         ON sm.place_slug = addr2.place_slug
-        AND sm.zip_code_out = addr2.zip_code
+        %s
         AND sm.street_out = addr2.street
       QUALIFY ROW_NUMBER() OVER (
         PARTITION BY sm.\".iid\"
-        ORDER BY house_number_score DESC
+        ORDER BY
+          (sm.input_hn_norm = addr2.hn_norm) DESC,
+          abs(TRY_CAST(sm.input_hn_norm AS INT) - TRY_CAST(addr2.hn_norm AS INT)) ASC NULLS LAST,
+          house_number_score DESC
       ) = 1
     )
     SELECT * FROM hn_match
@@ -461,9 +462,11 @@ bkg_match_addresses_ddb <- function(
                  nk_street("street_clean"),
                  nk("COALESCE(hn_input_key, '')"),
                  input_tbl,
-                 zip_code, place
+                 zip_code, place,
+                 if (!full_places) "AND input.zip_code_matched = addr.zip_code" else "",
+                 if (!full_places) "AND sm.zip_code_out = addr2.zip_code" else ""
   )
-  
+
   geocoded <- tryCatch(
     DBI::dbGetQuery(con, sql),
     error = function(e) {
@@ -605,8 +608,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     address_input = paste(
       messy_data$whole_address_input,
       messy_data[[paste0(zip_code, "_input")]],
-      messy_data[[paste0(place, "_input")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_input")]]
     ),
     street_input = messy_data[[paste0(street, "_input")]],
     house_number_input = if (house_number != "") {
@@ -622,8 +624,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
       messy_data[[paste0(street, "_cleaned")]],
       if (house_number != "") messy_data[[paste0(house_number, "_cleaned")]],
       messy_data[[paste0(zip_code, "_cleaned")]],
-      messy_data[[paste0(place, "_cleaned")]],
-      recycle0 = TRUE
+      messy_data[[paste0(place, "_cleaned")]]
     ),
     street_cleaned = messy_data[[paste0(street, "_cleaned")]],
     house_number_cleaned = if (house_number != "") {
@@ -642,8 +643,7 @@ bkg_clean_matched_addresses <- function(messy_data, cols, identifiers, verbose) 
     place_output = messy_data[[paste0(place, "_output")]],
     RS  = messy_data$RS,
     AGS = paste0(
-      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12),
-      recycle0 = TRUE
+      substr(messy_data$RS, 1, 5), substr(messy_data$RS, 10, 12)
     ),
     VWG = substr(messy_data$RS, 1, 9),
     KRS = substr(messy_data$RS, 1, 5),
