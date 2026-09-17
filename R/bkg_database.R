@@ -491,6 +491,7 @@ bkg_build_database_impl <- function(
 #' \code{\link{bkg_db_path}} -- most users should not need to change this.
 #' 
 #' @param state \code{[character]}
+#' 
 #' Character vector of states to include in the database. If \code{NULL}, all
 #' available data files are used. Can be one of the following:
 #' 

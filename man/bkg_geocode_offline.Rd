@@ -16,6 +16,7 @@ bkg_geocode_offline(
   hierarchical_weight = 0.5,
   house_number_penalty = 0.1,
   block = list(place = NA, zip = 3),
+  full_places = FALSE,
   verbose = TRUE
 )
 }
