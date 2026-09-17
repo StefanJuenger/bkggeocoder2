@@ -585,13 +585,6 @@ bkg_update_database <- function(
 ) {
   check_lgl(force)
   check_lgl(backup)
-  all_states <- c(
-    "bb", "be", "bw", "by", "hb", "he", "hh", "mv", "ni",
-    "nw", "rp", "sh", "sl", "sn", "st", "th"
-  )
-  if (!is.null(state)) {
-    state <- match.arg(state, all_states, several.ok = TRUE)
-  }
   
   if (!dir.exists(address_data_path)) {
     cli::cli_abort("{.path {address_data_path}} does not exist.")
