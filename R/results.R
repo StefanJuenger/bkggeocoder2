@@ -19,14 +19,12 @@ print.GeocodingResults <- function(x, n = 10, ...) {
   scores <- x$score[has_score]
   
   cat("Class:", strrep(" ", 5), "GeocodingResults", "\n")
-  cat("Addresses:", strrep(" ", 2), n_total, "\n")
-  cat("Geocoded:", strrep(" ", 3), n_place_matched, "/", n_total, "\n")
+  cat("Addresses:", strrep(" ", 1), n_total, "\n")
+  cat("Geocoded:", strrep(" ", 2), n_place_matched, "/", n_total, "\n")
   
   if (length(scores)) {
-    cat("Mean score:", strrep(" ", 1), round(mean(scores), 3), "\n")
+    cat("Mean score:", strrep(" ", 0), round(mean(scores), 3), "\n")
   }
-  
-  cat("Type:", strrep(" ", 6), attr(x, "type"), "\n")
   
   if (n_unmatched) {
     cat("Unmatched:", strrep(" ", 2), n_unmatched, "address(es)\n")

@@ -1,4 +1,5 @@
 "%||%" <- function(x, y) if (is.null(x)) y else x
+"%|||%" <- function(x, y) if (is.null(x) || all(is.na(x))) y else x
 
 check_lgl <- function(x) {
   obj <- deparse(substitute(x))
