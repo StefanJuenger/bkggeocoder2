@@ -54,6 +54,7 @@ bkg_db_path <- function() {
   tools::R_user_dir("bkggeocoder2", which = "data")
 }
 
+
 # Version metadata (read/write) ----
 # Stored as DCF (the key: value format R uses for DESCRIPTION) rather than
 # JSON, so no extra dependency is needed for a handful of fields.
@@ -184,6 +185,17 @@ bkg_build_database_impl <- function(
   }
   
   laender_names <- sub("^ga_(.*)\\.csv$", "\\1", csv_files)
+  if (!is.null(state)) {
+    is_no_state <- !state %in% laender_names
+    if (any(is_no_state)) {
+      wrong <- state[is_no_state]
+      cli::cli_abort(paste(
+        "The following states were specified but are not present in the",
+        "data source: {wrong}"
+      ))
+    }
+    laender_names <- intersect(state, laender_names)
+  }
   
   cli::cli_h1("Building BKG address database")
   
@@ -400,7 +412,7 @@ bkg_build_database_impl <- function(
     ))
   }
   
-# ZIP-Lookup ----
+  # ZIP-Lookup ----
   
   cli::cli_alert_info("Writing ZIP lookup")
   
@@ -448,7 +460,12 @@ bkg_build_database_impl <- function(
 
 # Building / updating the database (public entry point) ----
 
-#' Build or update the local BKG address database
+#' Build or update the local BKG address database.
+#' 
+#' \itemize{
+#'  \item{\code{bkg_update_database()} builds a database from a local address storage.}
+#'  \item{\code{bkg_db_is_stale()} checks whether the current database is up-to-date with the file storage.}
+#' }
 #'
 #' @description Creates or refreshes the local Parquet address database used
 #' for offline geocoding (see \code{\link{bkg_geocode_offline}}). This is the
@@ -457,6 +474,9 @@ bkg_build_database_impl <- function(
 #' is refreshed from newer raw data (with staleness checking, so a rebuild
 #' only happens if the raw data actually changed, unless \code{force = TRUE}).
 #' An existing database is optionally backed up before being overwritten.
+#' 
+#' \code{bkg_db_is_stale()} checks whether the database is up-to-date with
+#' the raw data.
 #'
 #' @param address_data_path \code{[character]}
 #'
@@ -469,6 +489,30 @@ bkg_build_database_impl <- function(
 #' Path to the local Parquet database directory. Defaults to the standard,
 #' platform-appropriate local data location returned by
 #' \code{\link{bkg_db_path}} -- most users should not need to change this.
+#' 
+#' @param state \code{[character]}
+#' Character vector of states to include in the database. If \code{NULL}, all
+#' available data files are used. Can be one of the following:
+#' 
+#' \itemize{
+#'  \item{\code{bb}: Brandenburg}
+#'  \item{\code{be}: Berlin}
+#'  \item{\code{bw}: Baden-Württemberg}
+#'  \item{\code{by}: Bavaria}
+#'  \item{\code{hb}: Bremen}
+#'  \item{\code{he}: Hesse}
+#'  \item{\code{hh}: Hamburg}
+#'  \item{\code{mv}: Mecklenburg-Vorpommern}
+#'  \item{\code{ni}: Lower Saxony}
+#'  \item{\code{nw}: North Rhine-Westphalia}
+#'  \item{\code{rp}: Rhineland-Palatinate}
+#'  \item{\code{sh}: Schlesweig-Holstein}
+#'  \item{\code{sl}: Saarland}
+#'  \item{\code{sn}: Saxony}
+#'  \item{\code{st}: Saxony-Anhalt}
+#'  \item{\code{th}: Thuringia}
+#'  \item{Any terrorial identifier supported by the source data}
+#' }
 #'
 #' @param force \code{[logical]}
 #'
@@ -503,8 +547,14 @@ bkg_build_database_impl <- function(
 #'
 #' @returns \code{TRUE} if the database was (re-)built, \code{FALSE} if it
 #' was already up to date (invisibly).
+#' 
+#' \code{bkg_db_is_stale()} returns \code{TRUE} if a database exists and it
+#' is not older than the newest raw address file.
 #'
 #' @examples
+#' # Since no database exists, the database is flagged as stale
+#' bkg_db_is_stale()
+#' 
 #' \dontrun{
 #' # Initial build
 #' bkg_update_database(address_data_path = "path/to/raw/bkg/csvs")
@@ -514,6 +564,9 @@ bkg_build_database_impl <- function(
 #'
 #' # Force a rebuild regardless of file timestamps
 #' bkg_update_database(address_data_path = "path/to/raw/bkg/csvs", force = TRUE)
+#' 
+#' # Database is now up-to-date
+#' bkg_db_is_stale() # FALSE
 #' }
 #'
 #' @seealso \code{\link{bkg_db_path}}, \code{\link{bkg_geocode_offline}}
@@ -524,6 +577,7 @@ bkg_build_database_impl <- function(
 bkg_update_database <- function(
     address_data_path,
     db_path = bkg_db_path(),
+    state = NULL,
     force = FALSE,
     backup = FALSE,
     memory_limit = NULL,
@@ -531,6 +585,13 @@ bkg_update_database <- function(
 ) {
   check_lgl(force)
   check_lgl(backup)
+  all_states <- c(
+    "bb", "be", "bw", "by", "hb", "he", "hh", "mv", "ni",
+    "nw", "rp", "sh", "sl", "sn", "st", "th"
+  )
+  if (!is.null(state)) {
+    state <- match.arg(state, all_states, several.ok = TRUE)
+  }
   
   if (!dir.exists(address_data_path)) {
     cli::cli_abort("{.path {address_data_path}} does not exist.")
@@ -618,3 +679,31 @@ bkg_update_database <- function(
   
   invisible(TRUE)
 }
+
+
+#' @rdname bkg_update_database
+#' @export
+bkg_db_is_stale <- function(address_data_path,
+                            db_path = bkg_db_path()) {
+  version_file <- file.path(db_path, "version.dcf")
+  old_version <- if (file.exists(version_file)) {
+    read_version_metadata(version_file)
+  } else NULL
+  is_initial_build <- is.null(old_version)
+  
+  if (is_initial_build) return(TRUE)
+  
+  source_files <- list.files(
+    address_data_path,
+    pattern = "^ga_.*\\.csv$",
+    full.names = TRUE
+  )
+  
+  if (!length(source_files)) return(NA)
+  
+  newest_source <- max(file.mtime(source_files))
+  db_created <- as.POSIXct(old_version$created)
+  !newest_source <= db_created
+}
+
+
